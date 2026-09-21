@@ -20,6 +20,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.armilla.neckcare.domain.model.Direction
+import com.armilla.neckcare.scene.Armillary
 import com.armilla.neckcare.scene.StageAnchor
 import com.armilla.neckcare.scene.environment.SkyDome
 import com.armilla.neckcare.scene.environment.SkyPanorama
@@ -117,23 +119,20 @@ fun HomeStage() {
 
         root.addChild(SkyDome(texture))
 
-        // Ruler: 0.77 m wide, just under the panel, to check the panel's physical width.
-        Entity().apply {
-            components.set(
-                ModelComponent(
-                    MeshResource.createBox(Vector3(0.77f, 0.01f, 0.01f)),
-                    UnlitMaterial.create().apply {
-                        setBaseColor(Color4(0.94f, 0.71f, 0.35f, 1f))
-                        setApplyToneMapping(false)
-                    },
+        Armillary().apply {
+            show(
+                mapOf(
+                    Direction.LEFT_ROTATION to 62, Direction.RIGHT_ROTATION to 71,
+                    Direction.FLEXION to 46, Direction.EXTENSION to 58,
+                    Direction.LEFT_BEND to 36, Direction.RIGHT_BEND to 41,
                 )
             )
-            components[TransformComponent::class.java]?.setPosition(root.polar(1.39f, 0f, -8f))
+            components[TransformComponent::class.java]?.setPosition(root.polar(2.5f, 0f, -3f))
             root.addChild(this)
         }
 
         attachments.entity("spike")?.let { panel ->
-            panel.components[TransformComponent::class.java]?.setPosition(root.polar(1.4f, 0f, -8f))
+            panel.components[TransformComponent::class.java]?.setPosition(root.polar(1.4f, -38f, -8f))
             root.addChild(panel)
             Log.i(TAG, "panel bounds=${panel.getVisualBounds(null)}")
         }
