@@ -39,6 +39,50 @@ class PunchScene(private val eyeHeightM: Float) : Entity() {
     private val rightGlove = glove(SceneColor.AMBER, thumbSide = -1f)
     private var clock = 0f
 
+    /** Rings at the hit plane, one per lane and height, that swell on every beat. */
+    private val gates: List<Entity> =
+        listOf(-LANE_M to SceneColor.JADE, LANE_M to SceneColor.AMBER).flatMap { (x, color) ->
+            listOf(PunchExercise.SHOULDER_HEIGHT_M, PunchExercise.CHEST_HEIGHT_M).map { y ->
+                val ring = MeshData().tube(MeshData.arc(Vec3.ZERO, 0.15f, Vec3.Y, Vec3.X, 0f, 360f, 8f), 0.004f, 6, closed = true)
+                SceneKit.model(ring, SceneKit.material(color, 0.55f, additive = true), "punch_gate")!!.apply {
+                    components[TransformComponent::class.java]?.setPosition(Vector3(x, eyeHeightM + y, -0.5f))
+                }
+            }
+        }
+
+    /** A hit throws a ring of sparks; pooled, each with its own material so it can fade. */
+    private class Burst(val entity: Entity, val material: com.pico.spatial.core.ecs.resource.UnlitMaterial, val color: SceneColor, var age: Float = 1f)
+
+    private val bursts: List<Burst> =
+        listOf(SceneColor.JADE, SceneColor.AMBER).flatMap { color ->
+            List(3) {
+                val mesh = MeshData()
+                for (k in 0 until 14) {
+                    val a = Math.toRadians(k * 360.0 / 14 + (it * 9))
+                    val dir = Vec3(kotlin.math.cos(a).toFloat(), sin(a.toFloat()), 0f)
+                    mesh.taper(dir * 0.09f, dir * (0.26f + (k % 3) * 0.05f), 0.012f, 0.001f, 6)
+                    mesh.sphere(dir * (0.3f + (k % 4) * 0.035f), 0.011f, 6, 4)
+                }
+                mesh.tube(MeshData.arc(Vec3.ZERO, 0.2f, Vec3.Y, Vec3.X, 0f, 360f, 10f), 0.006f, 6, closed = true)
+                val material = SceneKit.material(color, 0.9f, additive = true)
+                Burst(SceneKit.model(mesh, material, "punch_burst")!!.apply { enabled = false }, material, color)
+            }
+        }
+    private val burstFor = HashSet<Int>()
+
+    /** Streaks of light rushing past, for a sense of speed. */
+    private class Streak(val entity: Entity, val x: Float, val y: Float, var z: Float)
+
+    private val streaks: List<Streak> =
+        List(16) { i ->
+            val random = Random(i * 97 + 5)
+            val angle = random.nextFloat() * 6.283f
+            val radius = 0.75f + random.nextFloat() * 0.9f
+            val mesh = MeshData().taper(Vec3(0f, 0f, 0f), Vec3(0f, 0f, -1.1f - random.nextFloat()), 0.007f, 0.0005f, 5)
+            val color = if (i % 3 == 0) SceneColor.JADE else if (i % 3 == 1) SceneColor.AMBER else SceneColor.PAPER
+            Streak(SceneKit.model(mesh, SceneKit.material(color, 0.3f, additive = true), "punch_streak")!!, kotlin.math.cos(angle) * radius, sin(angle) * radius * 0.7f, -random.nextFloat() * 11f)
+        }
+
     /** Debug captures only: show the gloves in front of the user when no hand is tracked. */
     var demoGloves = false
 
@@ -49,6 +93,9 @@ class PunchScene(private val eyeHeightM: Float) : Entity() {
         }
         addChild(leftGlove)
         addChild(rightGlove)
+        gates.forEach(::addChild)
+        bursts.forEach { addChild(it.entity) }
+        streaks.forEach { addChild(it.entity) }
         // Faint dotted lanes so the eye can find where the next comet comes from.
         val lanes = MeshData()
         for (x in listOf(-LANE_M, LANE_M)) {
@@ -64,6 +111,36 @@ class PunchScene(private val eyeHeightM: Float) : Entity() {
     /** [leftForward] / [rightForward]: direction from the wrist to the knuckles, to aim each glove. */
     fun update(dt: Float, snap: PunchSnapshot, leftHand: Point3?, rightHand: Point3?, leftForward: Vec3?, rightForward: Vec3?) {
         clock += dt
+        // Gates swell on the beat and settle before the next one.
+        val swell = 1f + 0.35f * (1f - snap.beatPhase) * (1f - snap.beatPhase)
+        gates.forEach { it.components[TransformComponent::class.java]?.setScaleVector(Vector3(swell, swell, 1f)) }
+        // Speed lines loop from far ahead to just behind the head.
+        for (streak in streaks) {
+            streak.z += STREAK_SPEED_MPS * dt
+            if (streak.z > 1.5f) streak.z = -11f
+            streak.entity.components[TransformComponent::class.java]?.setPosition(Vector3(streak.x, eyeHeightM + streak.y, streak.z))
+        }
+        // New hits throw a burst where the comet was.
+        for (target in snap.targets) {
+            if (target.state == TargetState.HIT && burstFor.add(target.id)) {
+                val color = if (target.side == PunchSide.LEFT) SceneColor.JADE else SceneColor.AMBER
+                bursts.firstOrNull { it.color == color && it.age >= BURST_SECONDS }?.let { burst ->
+                    burst.age = 0f
+                    burst.entity.enabled = true
+                    burst.entity.components[TransformComponent::class.java]?.setPosition(Vector3(target.position.x, eyeHeightM + target.position.y, target.position.z))
+                }
+            }
+        }
+        if (burstFor.size > 64) burstFor.clear()
+        for (burst in bursts) {
+            if (burst.age >= BURST_SECONDS) continue
+            burst.age += dt
+            val t = (burst.age / BURST_SECONDS).coerceIn(0f, 1f)
+            val scale = 0.5f + 1.9f * (1f - (1f - t) * (1f - t))
+            burst.entity.components[TransformComponent::class.java]?.setScaleVector(Vector3(scale, scale, scale))
+            burst.material.setBaseColor(burst.color.color4(0.9f * (1f - t)))
+            if (t >= 1f) burst.entity.enabled = false
+        }
         val demoAim = Vec3(0.15f, 0.25f, -1f)
         place(leftGlove, leftHand ?: Point3(-0.17f, -0.2f, -0.55f).takeIf { demoGloves }, leftForward ?: demoAim.takeIf { demoGloves })
         place(rightGlove, rightHand ?: Point3(0.2f, -0.12f, -0.6f).takeIf { demoGloves }, rightForward ?: Vec3(-0.3f, 0.1f, -1f).takeIf { demoGloves })
@@ -156,7 +233,7 @@ class PunchScene(private val eyeHeightM: Float) : Entity() {
             SceneKit.model(MeshData().tube(seam, 0.002f, 5), SceneKit.material(SceneColor.INK, 0.55f), "glove_seam")?.let(::addChild)
             SceneKit.model(MeshData().ellipsoid(Vec3(-thumbSide * 0.014f, 0.043f, -0.05f), 0.032f, 0.012f, 0.04f), SceneKit.material(SceneColor.PAPER, 0.32f), "glove_light")?.let(::addChild)
             SceneKit.model(MeshData().ellipsoid(Vec3(0f, -0.042f, -0.02f), 0.05f, 0.016f, 0.065f), SceneKit.material(SceneColor.INK, 0.38f), "glove_shade")?.let(::addChild)
-            SceneKit.model(MeshData().sphere(Vec3(0f, 0f, -0.03f), 0.105f, 24, 16), SceneKit.material(color, 0.14f, additive = true), "glove_glow")?.let(::addChild)
+            // No glow shell: an untextured ADD sphere shows as a flat tinted disc on this device.
         }
 
     /** Additive blending adds RGB, so the falloff is painted as brightness. */
@@ -175,5 +252,7 @@ class PunchScene(private val eyeHeightM: Float) : Entity() {
     private companion object {
         const val POOL = 5
         const val LANE_M = 0.26f
+        const val BURST_SECONDS = 0.45f
+        const val STREAK_SPEED_MPS = 9f
     }
 }

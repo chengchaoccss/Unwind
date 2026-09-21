@@ -257,6 +257,7 @@ class SessionViewModel(
         val next =
             s.copy(
                 punchHits = snap.hits,
+                punchCombo = snap.combo,
                 punchRemaining = "%d:%02d".format(snap.remainingSeconds / 60, snap.remainingSeconds % 60),
                 punchProgress = (snap.timeProgress * 160).roundToInt() / 160f,
                 cue = if (snap.justHit) SessionCue.PUNCH else s.cue,

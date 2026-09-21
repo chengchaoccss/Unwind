@@ -20,7 +20,11 @@ enum class SceneColor(val r: Float, val g: Float, val b: Float) {
     JADE(0x7F / 255f, 0xD1 / 255f, 0xC4 / 255f),
     MIST(0xA9 / 255f, 0xB5 / 255f, 0xB4 / 255f),
     INK(0x09 / 255f, 0x14 / 255f, 0x19 / 255f),
-    HEAD(0xC9 / 255f, 0xCF / 255f, 0xCB / 255f);
+    HEAD(0xC9 / 255f, 0xCF / 255f, 0xCB / 255f),
+
+    /** Orb core gradient of the board: #fff7e2 at the centre, #f8cd82 around it. */
+    ORB_LIGHT(0xF8 / 255f, 0xCD / 255f, 0x82 / 255f),
+    WHITE_HOT(0xFF / 255f, 0xF7 / 255f, 0xE2 / 255f);
 
     fun color4(alpha: Float = 1f) = Color4(r, g, b, alpha)
 }
@@ -38,9 +42,9 @@ object SceneKit {
                 else -> BlendingMode.OPAQUE
             }
         return UnlitMaterial.create(blending).apply {
-            // Additive blending ignores alpha on this engine (seen on device: a 10 % glow came out
-            // at full strength), so an additive colour is dimmed instead.
-            setBaseColor(if (additive) Color4(color.r * alpha, color.g * alpha, color.b * alpha, 1f) else color.color4(alpha))
+            // Measured with BlendProbe: an untextured ADD material blends like a translucent tint of
+            // its colour (alpha 0 is invisible, alpha 1 is solid), so glows keep full colour, low alpha.
+            setBaseColor(color.color4(alpha))
             setApplyToneMapping(false)
             setCullingMode(MaterialCullingMode.NONE)
             if (blending != BlendingMode.OPAQUE) setDepthWrite(false)
@@ -51,6 +55,8 @@ object SceneKit {
     fun textured(bitmap: android.graphics.Bitmap, additive: Boolean = false): UnlitMaterial =
         UnlitMaterial.create(if (additive) BlendingMode.ADD else BlendingMode.TRANSPARENT).apply {
             setBaseColorTexture(com.pico.spatial.core.ecs.resource.TextureResource.create(bitmap))
+            // Measured with BlendProbe: a textured ADD card painted as brightness on OPAQUE black,
+            // with base alpha 1, adds light and leaves the background alone. Alpha 0 hides it.
             setApplyToneMapping(false)
             setCullingMode(MaterialCullingMode.NONE)
             setDepthWrite(false)

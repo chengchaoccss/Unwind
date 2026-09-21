@@ -142,6 +142,7 @@ fun ArmillaStage() {
         hmd.start()
         handTracking.start()
         registerSystem<FrameSystem>()
+        scene.onPunchBeat = { strong -> cues.play(if (strong) CuePlayer.Cue.KICK else CuePlayer.Cue.TICK) }
         FrameLoop.onFrame = { dt ->
             val pose = hmd.latestData.hmdPose
             val handData = handTracking.latestData
@@ -308,7 +309,12 @@ fun ArmillaStage() {
 
             // 出拳
             panel(PunchPanels.Status) { ExerciseStatusBar("出拳", sessionState.punchProgress, sessionState.punchRemaining) }
-            panel(PunchPanels.Count) { ReadingTag("已击中", "${sessionState.punchHits}", valueSizePx = 34) }
+            panel(PunchPanels.Count) {
+                ReadingTag(
+                    "已击中", "${sessionState.punchHits}", valueSizePx = 34,
+                    trailing = if (sessionState.punchCombo >= 3) "连击 ${sessionState.punchCombo}" else null,
+                )
+            }
 
             // 今日数据
             panel(ResultPanels.Main) {

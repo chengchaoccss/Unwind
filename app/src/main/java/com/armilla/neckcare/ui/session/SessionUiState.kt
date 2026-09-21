@@ -55,6 +55,7 @@ data class SessionUiState(
     val shoulderCounting: Boolean = false,
     val shoulderHint: String = "跟着前面的小光点，一圈大约 4 秒",
     val punchHits: Int = 0,
+    val punchCombo: Int = 0,
     val punchRemaining: String = "1:00",
     val punchProgress: Float = 0f,
     /** Cue to play once; the stage clears it after playing. */

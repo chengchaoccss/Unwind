@@ -9,6 +9,7 @@ import com.armilla.neckcare.domain.usecase.Quaternion
 import com.armilla.neckcare.scene.environment.MeteorShower
 import com.armilla.neckcare.scene.environment.SkyDome
 import com.armilla.neckcare.scene.environment.SkyPanorama
+import com.armilla.neckcare.scene.environment.StarClusters
 import com.armilla.neckcare.ui.session.SessionStage
 import com.armilla.neckcare.ui.session.SessionViewModel
 import com.armilla.neckcare.domain.usecase.GazePoint
@@ -42,6 +43,7 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
     val anchor = StageAnchor()
     private var sky: SkyDome? = null
     private var meteors: MeteorShower? = null
+    private var stars: StarClusters? = null
     private var armillary: Armillary? = null
     private var gauge: TestGauge? = null
     private var calibrationPoint: Entity? = null
@@ -54,6 +56,9 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
 
     /** Debug captures only. */
     var demoGloves = false
+
+    /** Called on every beat of the punch exercise (true on the first beat of a bar): the drum. */
+    var onPunchBeat: ((Boolean) -> Unit)? = null
 
     /** Radius of the shoulder guide rings, from settings. */
     var ringRadiusM = 0.19f
@@ -110,6 +115,7 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
         sky = SkyDome(TextureResource.create(bitmap)).also(anchor::addChild)
         anchor.addChild(Dais())
         meteors = MeteorShower(anchor) { anchor.eyeHeightM }
+        stars = StarClusters(anchor.eyeHeightM).also(anchor::addChild)
         armillary = Armillary().also(anchor::addChild)
         ready = true
     }
@@ -260,6 +266,7 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
     fun onFrame(dt: Float, headPosition: Vector3, headRotation: Quat, session: SessionViewModel) {
         if (!ready) return
         meteors?.update(dt)
+        stars?.update(dt)
         if (headPosition.y < 0.2f) {
             trackingLostSeconds += dt
             if (trackingLostSeconds > 3f) session.pauseForTrackingLoss()
@@ -336,7 +343,11 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
             }
             SessionStage.ORB -> {
                 session.onOrbFrame(dt, GazePoint(yawDeg, pitchDeg), speedDps)
-                session.orbSnapshot?.let { orbScene?.update(dt, it) }
+                session.orbSnapshot?.let {
+                    // Debug captures only: hold the orb in front of wherever the headset points.
+                    val shown = if (demoGloves) it.copy(position = GazePoint(yawDeg + 9f, pitchDeg - 6f), catchProgress = 0.6f) else it
+                    orbScene?.update(dt, shown)
+                }
             }
             SessionStage.SHOULDER -> {
                 val scene = shoulderScene ?: return
@@ -370,6 +381,7 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
                     return com.armilla.neckcare.scene.geometry.Vec3(k.x - w.x, k.y - w.y, k.z - w.z)
                 }
                 session.punchSnapshot?.let {
+                    if (it.beat) onPunchBeat?.invoke(it.beatStrong)
                     punchScene?.update(dt, it, l, r, aim(leftWrist, leftKnuckle), aim(rightWrist, rightKnuckle))
                 }
             }

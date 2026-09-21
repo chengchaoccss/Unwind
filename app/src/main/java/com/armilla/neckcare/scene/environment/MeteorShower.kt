@@ -21,7 +21,8 @@ import kotlin.random.Random
 
 /**
  * Shooting stars across the upper sky: a new one every 1 to 3.5 seconds, now and then a small
- * shower of two to four, up to six in flight. Each is a short additive streak, bright at the head,
+ * shower of two to four, and every 16 to 28 seconds a storm: twelve to eighteen meteors pouring
+ * out of one radiant over about three seconds. Each is a short additive streak, bright at the head,
  * that travels 15 to 35 degrees in about a second and fades in and out. They stay above 24° so
  * they never cross the panels.
  */
@@ -36,8 +37,19 @@ class MeteorShower(private val parent: Entity, private val eyeHeight: () -> Floa
     private val streakBitmap = paintStreak()
     private val flying = ArrayList<Meteor>()
     private var wait = 1.5f
+    private var stormWait = 9f
 
     fun update(dt: Float) {
+        stormWait -= dt
+        if (stormWait <= 0f) {
+            stormWait = 16f + random.nextFloat() * 12f
+            // A storm shares one radiant and heading, so the streaks fan out in parallel.
+            val radiant = -60f + random.nextFloat() * 120f
+            val heading = if (random.nextBoolean()) 1f else -1f
+            repeat(12 + random.nextInt(7)) {
+                launch(radiant + (random.nextFloat() - 0.5f) * 70f, heading, delay = random.nextFloat() * 3.2f)
+            }
+        }
         wait -= dt
         if (wait <= 0f) {
             val shower = random.nextFloat() < 0.22f
@@ -45,7 +57,7 @@ class MeteorShower(private val parent: Entity, private val eyeHeight: () -> Floa
             // A shower shares a radiant, so its streaks run roughly parallel.
             val heading = if (random.nextBoolean()) 1f else -1f
             val az = -80f + random.nextFloat() * 160f
-            repeat(count) { i -> if (flying.size < MAX_FLYING) launch(az + i * (6f + random.nextFloat() * 10f), heading, delay = i * 0.18f) }
+            repeat(count) { i -> if (flying.size < MAX_SINGLES) launch(az + i * (6f + random.nextFloat() * 10f), heading, delay = i * 0.18f) }
             wait = 1f + random.nextFloat() * 2.5f
         }
         val done = ArrayList<Meteor>()
@@ -119,6 +131,6 @@ class MeteorShower(private val parent: Entity, private val eyeHeight: () -> Floa
         const val RADIUS_M = 40f
         const val LENGTH_M = 4.6f
         const val WIDTH_M = 0.24f
-        const val MAX_FLYING = 6
+        const val MAX_SINGLES = 8
     }
 }

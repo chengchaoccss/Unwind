@@ -46,12 +46,12 @@ class OrbScene(private val eyeHeightM: Float, private val path: OrbPath) : Entit
 
         // O-02: core 30 px with a #fff7e2 -> #f8cd82 -> #f0b45a gradient, halo 190 px fading to 0.
         haloMaterial = SceneKit.textured(paintHalo(), additive = true)
-        SceneKit.model(MeshData().quad(centre, Vec3.X * (190f * PX), Vec3.Y * (190f * PX)), haloMaterial, "orb_halo")?.let(pivot::addChild)
-        SceneKit.model(
-            MeshData().quad(centre + Vec3(0f, 0f, 0.01f), Vec3.X * (34f * PX), Vec3.Y * (34f * PX)),
-            SceneKit.textured(paintCore()),
-            "orb_core",
-        )?.let(pivot::addChild)
+        SceneKit.model(MeshData().quad(centre + Vec3(0f, 0f, -0.02f), Vec3.X * (190f * PX), Vec3.Y * (190f * PX)), haloMaterial, "orb_halo")?.let(pivot::addChild)
+        // The core is real geometry. A transparent textured card renders its clear corners as a
+        // dark square on this device (the "black box" seen in the headset).
+        SceneKit.model(MeshData().sphere(centre, 30f * PX, 28, 20), SceneKit.material(SceneColor.AMBER), "orb_core")?.let(pivot::addChild)
+        SceneKit.model(MeshData().sphere(centre + Vec3(-4f * PX, 5f * PX, 12f * PX), 22f * PX, 24, 16), SceneKit.material(SceneColor.ORB_LIGHT), "orb_core_light")?.let(pivot::addChild)
+        SceneKit.model(MeshData().sphere(centre + Vec3(-7f * PX, 9f * PX, 22f * PX), 11f * PX, 20, 14), SceneKit.material(SceneColor.WHITE_HOT), "orb_core_hot")?.let(pivot::addChild)
 
         // O-03: catch ring, radius 66 px, paper white 30 %, 2 px.
         val ring = MeshData().tube(MeshData.arc(centre, 66f * PX, Vec3.Y, Vec3.X, 0f, 360f, 6f), 1f * PX, 6, closed = true)
@@ -162,40 +162,23 @@ class OrbScene(private val eyeHeightM: Float, private val path: OrbPath) : Entit
         SceneKit.model(dots, SceneKit.material(SceneColor.JADE, 0.7f), "motion_boundary")?.let(::addChild)
     }
 
+    /** Brightness on opaque black, the recipe BlendProbe showed to glow without a dark card. */
     private fun paintHalo(): Bitmap {
         val size = 256
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        canvas.drawColor(Color.BLACK)
         val paint =
             Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 shader =
                     RadialGradient(
                         size / 2f, size / 2f, size / 2f,
-                        // Additive blending adds RGB, so the falloff is painted as brightness:
-                        // amber at 50 % in the centre, fading to nothing at 190 px.
-                        intArrayOf(Color.rgb(0x78, 0x5A, 0x2D), Color.rgb(0x2B, 0x20, 0x10), Color.rgb(0, 0, 0)),
-                        floatArrayOf(0f, 0.45f, 1f),
+                        intArrayOf(Color.rgb(0xC8, 0x96, 0x4B), Color.rgb(0x5A, 0x43, 0x22), Color.rgb(0x1C, 0x15, 0x0A), Color.BLACK),
+                        floatArrayOf(0f, 0.3f, 0.65f, 1f),
                         Shader.TileMode.CLAMP,
                     )
             }
-        Canvas(bitmap).drawCircle(size / 2f, size / 2f, size / 2f, paint)
-        return bitmap
-    }
-
-    private fun paintCore(): Bitmap {
-        val size = 128
-        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val r = size / 2f * 30f / 34f
-        val paint =
-            Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                shader =
-                    RadialGradient(
-                        size * 0.42f, size * 0.4f, r * 1.15f,
-                        intArrayOf(Color.parseColor("#fff7e2"), Color.parseColor("#f8cd82"), Color.parseColor("#f0b45a")),
-                        floatArrayOf(0f, 0.55f, 1f),
-                        Shader.TileMode.CLAMP,
-                    )
-            }
-        Canvas(bitmap).drawCircle(size / 2f, size / 2f, r, paint)
+        canvas.drawCircle(size / 2f, size / 2f, size / 2f, paint)
         return bitmap
     }
 

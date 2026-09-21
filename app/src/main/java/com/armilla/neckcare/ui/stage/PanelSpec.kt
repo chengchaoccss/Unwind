@@ -159,7 +159,7 @@ object PunchPanels {
     val Status = PanelSpec("punch_status", 680, 84, DesignScale.MAIN_M, boardCenterPx = 800f to 102f, group = PanelGroup.FOLLOW)
 
     /** "已击中 12", under the status bar on the far layer. */
-    val Count = PanelSpec("punch_count", 230, 60, DesignScale.FAR_M, boardCenterPx = 800f to 215f)
+    val Count = PanelSpec("punch_count", 330, 60, DesignScale.FAR_M, boardCenterPx = 800f to 215f)
 
     val all = listOf(Status, Count)
 }
