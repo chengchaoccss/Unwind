@@ -43,6 +43,15 @@ class StageAnchor : Entity() {
         )
     }
 
+    /**
+     * A point given in artboard pixels (1600 x 900, horizon at y = 450, straight ahead at x = 800)
+     * on a plane [distanceM] in front of the user: world mm = px x 1.25 x distance (PRD §4).
+     */
+    fun board(distanceM: Float, xPx: Float, yPx: Float): Vector3 {
+        val mPerPx = 0.00125f * distanceM
+        return Vector3((xPx - 800f) * mPerPx, eyeHeightM + (450f - yPx) * mPerPx, -distanceM)
+    }
+
     companion object {
         const val DEFAULT_EYE_HEIGHT_M = 1.6f
         private const val MIN_EYE_HEIGHT_M = 0.9f

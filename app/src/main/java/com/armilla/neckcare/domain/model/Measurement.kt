@@ -89,3 +89,20 @@ data class TestResult(
     val totalDeg: Int
         get() = Direction.entries.sumOf { angle(it) ?: 0 }
 }
+
+enum class ExerciseType(val key: String) {
+    ORB("orb"),
+    SHOULDER("shoulder"),
+}
+
+/** Outcome of one guided exercise (PRD §12 ExerciseResult). */
+data class ExerciseResult(
+    val sessionId: Long,
+    val type: ExerciseType,
+    val durationSeconds: Int,
+    val orbsCaught: Int = 0,
+    val orbsTotal: Int = 0,
+    val lapsBack: Int = 0,
+    val lapsForward: Int = 0,
+    val pauseCount: Int = 0,
+)

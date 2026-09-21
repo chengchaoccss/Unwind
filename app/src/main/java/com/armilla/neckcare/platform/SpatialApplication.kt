@@ -7,6 +7,7 @@ import com.armilla.neckcare.mainApp
 class SpatialApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        AppContainer.init(this)
         launch(::mainApp)
     }
 }

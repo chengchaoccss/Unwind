@@ -49,13 +49,19 @@ class MobilityInsights(private val zone: ZoneId = ZoneId.systemDefault()) {
             .filter { it.measuredCount > 0 && it.finishedAtMillis < result.finishedAtMillis }
             .maxByOrNull { it.finishedAtMillis }
 
-    /** Up to [days] daily totals ending today, complete measurements only. */
+    /**
+     * Up to [days] daily totals, complete measurements only. The window ends on the most recent
+     * measured day (as on the lobby board: 9/7 to 9/20 seen on 9/21), not on a day without data.
+     */
     fun trend(history: List<TestResult>, today: LocalDate, days: Int = 14): List<TrendPoint> {
-        val from = today.minusDays(days.toLong() - 1)
-        return dailyResults(history)
-            .filter { it.isComplete }
-            .map { TrendPoint(dateOf(it), it.totalDeg) }
-            .filter { !it.date.isBefore(from) && !it.date.isAfter(today) }
+        val points =
+            dailyResults(history)
+                .filter { it.isComplete }
+                .map { TrendPoint(dateOf(it), it.totalDeg) }
+                .filter { !it.date.isAfter(today) }
+        val end = points.lastOrNull()?.date ?: return emptyList()
+        val from = end.minusDays(days.toLong() - 1)
+        return points.filter { !it.date.isBefore(from) }
     }
 
     /** "比两周前": latest total minus the daily total closest to 14 days earlier, if any. */
