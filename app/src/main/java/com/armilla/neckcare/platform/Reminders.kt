@@ -53,7 +53,7 @@ object Reminders {
         val notification =
             android.app.Notification.Builder(context, CHANNEL)
                 .setSmallIcon(R.mipmap.ic_spatial_launcher)
-                .setContentTitle("颈肩管家")
+                .setContentTitle(context.getString(R.string.app_name))
                 .setContentText("花几分钟活动一下脖子和肩膀")
                 .setContentIntent(open)
                 .setAutoCancel(true)
