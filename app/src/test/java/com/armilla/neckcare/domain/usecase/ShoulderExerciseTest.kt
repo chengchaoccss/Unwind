@@ -34,10 +34,43 @@ class ShoulderExerciseTest {
     }
 
     @Test
-    fun circlingFarFromTheRingPlaneDoesNotCount() {
+    fun aSteadyOffsetFromTheEstimatedRingStillCounts() {
+        // The ring is placed from a guess of where the shoulders are; sitting 20 cm nearer must not fail laps.
         val exercise = ShoulderExercise()
         exercise.circle(2.1f, 0f, 1)
-        assertEquals(0, exercise.circle(8.2f, 90f, 1, offPlane = 0.2f).first.laps)
+        assertEquals(2, exercise.circle(8.2f, 90f, 1, offPlane = 0.2f).first.laps)
+    }
+
+    @Test
+    fun wavingInAndOutOfThePlaneDoesNotCountAndSaysWhy() {
+        val exercise = ShoulderExercise()
+        exercise.circle(2.1f, 0f, 1)
+        var angle = 0f
+        var snap = exercise.update(0f, HandSample(0f, 0f), HandSample(0f, 0f))
+        var i = 0
+        repeat((4.2f / dt).toInt()) {
+            angle = (angle + 90f * dt) % 360f
+            val off = if ((i++ / 9) % 2 == 0) 0.25f else -0.25f
+            snap = exercise.update(dt, HandSample(angle, off), HandSample(angle, off))
+        }
+        assertEquals(0, snap.laps)
+        assertEquals("贴着环画，画得和环一样大", snap.hint)
+    }
+
+    @Test
+    fun aHandThatGoesOutOfSightForHalfTheCircleIsCreditedWhenItComesBack() {
+        val exercise = ShoulderExercise()
+        exercise.circle(2.1f, 0f, 1)
+        var angle = 0f
+        var snap = exercise.update(0f, HandSample(0f, 0f), HandSample(0f, 0f))
+        repeat((12.3f / dt).toInt()) {
+            angle = (angle + 90f * dt) % 360f
+            // Hidden between 120° and 300° of every circle: two seconds, longer than the 1.5 s grace.
+            val visible = angle < 120f || angle > 300f
+            val sample = if (visible) HandSample(angle, 0.01f) else null
+            snap = exercise.update(dt, sample, sample)
+        }
+        assertEquals(3, snap.laps)
     }
 
     @Test

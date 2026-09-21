@@ -28,6 +28,15 @@ data class HandSample(val ringAngleDeg: Float, val offPlaneM: Float)
 
 data class HandState(val progressDeg: Float, val laps: Int, val tracked: Boolean, val lostLong: Boolean)
 
+/** Why a finished circle did or did not count; logged on device to tune the thresholds. */
+data class LapReport(
+    val hand: Int,
+    val counted: Boolean,
+    val onPlaneShare: Float,
+    val medianOffPlaneM: Float,
+    val carriedDeg: Float,
+)
+
 data class ShoulderSnapshot(
     val phase: ShoulderPhase,
     /** The smaller of the two hands' lap counts in the current direction. */
@@ -43,11 +52,14 @@ data class ShoulderSnapshot(
     val lapsForward: Int,
     val hint: String?,
     val finished: Boolean,
+    val lapReports: List<LapReport> = emptyList(),
 )
 
 /**
  * PRD §8: a lap counts when the hand has gone 360° around its ring with at least 70 % of that
- * time within 8 cm of the ring plane; hands count separately and the panel shows the smaller
+ * time within 8 cm of the ring plane. The ring is placed from an estimate of where the shoulders
+ * are, so "the ring plane" is taken as the plane the hand itself circled in (the lap's median
+ * offset): a user sitting a little nearer or farther is not failed for the app's estimate; hands count separately and the panel shows the smaller
  * count; the pacer runs 90°/s and waits when a hand is more than 90° behind; a hand lost for up
  * to 1.5 s is carried along with the pacer; eight laps backward, five seconds of rest, eight
  * forward, or 90 seconds in all.
@@ -57,9 +69,12 @@ class ShoulderExercise(private val config: ShoulderConfig = ShoulderConfig()) {
         var progress = 0f
         var laps = 0
         var lastAngle: Float? = null
-        var onPlane = 0f
-        var total = 0f
         var lost = 0f
+
+        /** Where the hand is assumed to be while it is out of sight. */
+        var virtualAngle: Float? = null
+        var carried = 0f
+        val offPlane = ArrayList<Float>()
     }
 
     private var phase = ShoulderPhase.NOTICE
@@ -69,11 +84,15 @@ class ShoulderExercise(private val config: ShoulderConfig = ShoulderConfig()) {
     private val hands = arrayOf(Hand(), Hand())
     private var lapsBack = 0
     private var lapsForward = 0
+    private var rejectedHint = 0f
+    private val reports = ArrayList<LapReport>()
 
     fun update(dtSeconds: Float, left: HandSample?, right: HandSample?): ShoulderSnapshot {
         val dt = dtSeconds.coerceIn(0f, 0.1f)
         phaseTime += dt
         var counted = false
+        reports.clear()
+        rejectedHint = (rejectedHint - dt).coerceAtLeast(0f)
         when (phase) {
             ShoulderPhase.NOTICE -> if (phaseTime >= config.safetyNoticeSeconds) enter(ShoulderPhase.BACKWARD)
             ShoulderPhase.REST -> if (phaseTime >= config.restSeconds) enter(ShoulderPhase.FORWARD)
@@ -82,7 +101,7 @@ class ShoulderExercise(private val config: ShoulderConfig = ShoulderConfig()) {
                 val sign = if (phase == ShoulderPhase.BACKWARD) 1 else -1
                 val slowest = hands.minOf { it.progress + it.laps * 360f }
                 if (pacer - slowest < config.maxLagDeg + config.pacerLeadDeg) pacer += config.pacerDegPerSecond * dt
-                listOf(left, right).forEachIndexed { i, sample -> if (track(hands[i], sample, sign, dt)) counted = true }
+                listOf(left, right).forEachIndexed { i, sample -> if (track(i, hands[i], sample, sign, dt)) counted = true }
                 val laps = hands.minOf { it.laps }
                 if (phase == ShoulderPhase.BACKWARD) lapsBack = laps else lapsForward = laps
                 when {
@@ -105,49 +124,68 @@ class ShoulderExercise(private val config: ShoulderConfig = ShoulderConfig()) {
             remainingSeconds = kotlin.math.ceil((config.durationSeconds - elapsed).coerceAtLeast(0f)).toInt(),
             lapsBack = lapsBack,
             lapsForward = lapsForward,
-            hint = if (lostLong && (phase == ShoulderPhase.BACKWARD || phase == ShoulderPhase.FORWARD)) "把手抬到看得见的位置" else null,
+            hint =
+                when {
+                    phase != ShoulderPhase.BACKWARD && phase != ShoulderPhase.FORWARD -> null
+                    lostLong -> "把手抬到看得见的位置"
+                    rejectedHint > 0f -> "贴着环画，画得和环一样大"
+                    else -> null
+                },
             finished = phase == ShoulderPhase.DONE,
+            lapReports = reports.toList(),
         )
     }
 
-    private fun track(hand: Hand, sample: HandSample?, sign: Int, dt: Float): Boolean {
+    private fun track(index: Int, hand: Hand, sample: HandSample?, sign: Int, dt: Float): Boolean {
         if (sample == null) {
             hand.lost += dt
+            if (hand.virtualAngle == null) hand.virtualAngle = hand.lastAngle
             hand.lastAngle = null
             // Short dropouts behind the body: carry the hand along with the pacer.
-            if (hand.lost <= config.lostGraceSeconds) advance(hand, config.pacerDegPerSecond * dt, onPlane = true, dt)
+            if (hand.lost <= config.lostGraceSeconds) {
+                val step = config.pacerDegPerSecond * dt
+                hand.progress += step
+                hand.carried += step
+                hand.virtualAngle = hand.virtualAngle?.let { it + sign * step }
+            }
         } else {
-            hand.lost = 0f
             val last = hand.lastAngle
-            hand.lastAngle = sample.ringAngleDeg
+            val virtual = hand.virtualAngle
             if (last != null) {
                 var delta = sample.ringAngleDeg - last
                 if (delta > 180f) delta -= 360f
                 if (delta < -180f) delta += 360f
                 // Only movement in the asked direction counts; going the other way does not undo it.
-                val forward = (delta * sign).coerceIn(0f, 45f)
-                advance(hand, forward, abs(sample.offPlaneM) <= config.onPlaneToleranceM, dt)
+                hand.progress += (delta * sign).coerceIn(0f, 45f)
+            } else if (virtual != null) {
+                // Back in sight: credit the arc travelled while hidden, measured the asked way round.
+                val travelled = (((sample.ringAngleDeg - virtual) * sign) % 360f + 360f) % 360f
+                if (travelled <= MAX_HIDDEN_ARC_DEG) {
+                    hand.progress += travelled
+                    hand.carried += travelled
+                }
             }
+            hand.lost = 0f
+            hand.virtualAngle = null
+            hand.lastAngle = sample.ringAngleDeg
+            hand.offPlane += sample.offPlaneM
         }
-        if (hand.progress >= 360f) {
-            val good = hand.total > 0f && hand.onPlane / hand.total >= config.onPlaneShare
-            hand.progress -= 360f
-            hand.onPlane = 0f
-            hand.total = 0f
-            if (good) {
-                hand.laps++
-                return true
-            }
-        }
-        return false
-    }
+        if (hand.progress < 360f) return false
 
-    private fun advance(hand: Hand, degrees: Float, onPlane: Boolean, dt: Float) {
-        hand.progress += degrees
-        if (degrees > 0f) {
-            hand.total += dt
-            if (onPlane) hand.onPlane += dt
-        }
+        val sorted = hand.offPlane.sorted()
+        val median = if (sorted.isEmpty()) 0f else sorted[sorted.size / 2]
+        val share =
+            if (sorted.isEmpty()) 0f
+            else sorted.count { abs(it - median) <= config.onPlaneToleranceM } / sorted.size.toFloat()
+        // A lap seen for less than a third of the way round is not evidence of a circle.
+        val seenEnough = hand.carried <= 360f * MAX_CARRIED_SHARE
+        val good = share >= config.onPlaneShare && seenEnough
+        reports += LapReport(index, good, share, median, hand.carried)
+        hand.progress -= 360f
+        hand.carried = 0f
+        hand.offPlane.clear()
+        if (good) hand.laps++ else rejectedHint = REJECTED_HINT_SECONDS
+        return good
     }
 
     private fun state(hand: Hand) =
@@ -158,7 +196,21 @@ class ShoulderExercise(private val config: ShoulderConfig = ShoulderConfig()) {
         phaseTime = 0f
         if (next == ShoulderPhase.FORWARD || next == ShoulderPhase.BACKWARD) {
             pacer = 0f
-            hands.forEach { it.progress = 0f; it.laps = 0; it.lastAngle = null; it.onPlane = 0f; it.total = 0f }
+            hands.forEach {
+                it.progress = 0f
+                it.laps = 0
+                it.lastAngle = null
+                it.virtualAngle = null
+                it.carried = 0f
+                it.offPlane.clear()
+            }
         }
+    }
+
+    private companion object {
+        /** A hand that reappears more than this far round is treated as a fresh start. */
+        const val MAX_HIDDEN_ARC_DEG = 270f
+        const val MAX_CARRIED_SHARE = 0.67f
+        const val REJECTED_HINT_SECONDS = 3f
     }
 }

@@ -42,6 +42,7 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
     private var calibrationPoint: Entity? = null
     private var orbScene: OrbScene? = null
     private var shoulderScene: ShoulderScene? = null
+    private var shoulderLogTimer = 0f
 
     /** Wrist positions in stage space, supplied by the stage every frame; null while untracked. */
     var leftHand: Vector3? = null
@@ -300,7 +301,15 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
                 fun local(p: Vector3?) = p?.let { anchor.convertPositionFrom(it, null) }?.let { com.armilla.neckcare.scene.geometry.Vec3(it.x, it.y, it.z) }
                 val (l, r) = scene.samples(local(leftHand), local(rightHand))
                 session.onShoulderFrame(dt, l, r)
-                session.shoulderSnapshot?.let { scene.update(it, l?.ringAngleDeg, r?.ringAngleDeg) }
+                session.shoulderSnapshot?.let { snap ->
+                    scene.update(snap, l?.ringAngleDeg, r?.ringAngleDeg)
+                    snap.lapReports.forEach { android.util.Log.i("ArmillaShoulder", "lap $it") }
+                    shoulderLogTimer += dt
+                    if (shoulderLogTimer >= 1f) {
+                        shoulderLogTimer = 0f
+                        android.util.Log.i("ArmillaShoulder", "phase=${snap.phase} laps=${snap.laps} L=$l ${snap.left} R=$r ${snap.right} pacer=${snap.pacerDeg.toInt()}")
+                    }
+                }
             }
             else -> Unit
         }
