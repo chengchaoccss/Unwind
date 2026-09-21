@@ -1,97 +1,292 @@
 package com.armilla.neckcare.scene
 
+import android.graphics.Typeface
+import androidx.compose.ui.unit.Density
 import com.armilla.neckcare.domain.model.Direction
+import com.armilla.neckcare.domain.usecase.HeadAngleCalculator
+import com.armilla.neckcare.domain.usecase.Quaternion
 import com.armilla.neckcare.scene.environment.SkyDome
 import com.armilla.neckcare.scene.environment.SkyPanorama
+import com.armilla.neckcare.ui.session.SessionStage
+import com.armilla.neckcare.ui.session.SessionViewModel
 import com.armilla.neckcare.ui.stage.LobbyPanels
+import com.armilla.neckcare.ui.stage.PanelGroup
 import com.armilla.neckcare.ui.stage.PanelSpec
+import com.armilla.neckcare.ui.stage.SessionPanels
 import com.pico.spatial.core.ecs.Entity
 import com.pico.spatial.core.ecs.TransformComponent
 import com.pico.spatial.core.ecs.resource.TextureResource
 import com.pico.spatial.core.math.Quat
 import com.pico.spatial.core.math.Vector3
+import kotlin.math.abs
+import kotlin.math.acos
+import kotlin.math.asin
+import kotlin.math.atan2
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Owns every entity the app creates. Compose only hands it state; placement, the armillary and
- * the environment live here so per-frame work never goes through recomposition.
+ * Owns every entity the app creates and runs the per-frame work. Compose hands it state and the
+ * panel entities; head-driven motion never goes through recomposition.
  */
-class StageScene(private val density: androidx.compose.ui.unit.Density) {
+class StageScene(private val density: Density, private val numerals: Typeface) {
     val anchor = StageAnchor()
     private var sky: SkyDome? = null
     private var armillary: Armillary? = null
+    private var gauge: TestGauge? = null
+    private var calibrationPoint: Entity? = null
     private var shownAngles: Map<Direction, Int>? = null
     private var ready = false
 
-    fun calibrate(headPosition: Vector3, headRotation: Quat) {
-        anchor.calibrate(headPosition, headRotation)
-        sky?.setEyeHeight(anchor.eyeHeightM)
+    private val followGroup = Entity()
+    private val readingGroup = Entity()
+    private val reticleGroup = Entity()
+    private val panels = HashMap<String, Entity>()
+    private var entityOf: ((Any) -> Entity?)? = null
+
+    private var anchorRotation: Quat = Quat.identity()
+    private var neutral: Quaternion = Quaternion.IDENTITY
+    private var lastForward: Vector3? = null
+    private var followYawDeg = 0f
+    private var followFromDeg = 0f
+    private var followToDeg = 0f
+    private var followEase = -1f
+    private var awaySeconds = 0f
+    private var readingYawDeg = 0f
+    private var readingPitchDeg = 0f
+    private var shownStage: SessionStage? = null
+    private var shownPaused = false
+    private var shownDirection: Direction? = null
+
+    init {
+        listOf(followGroup, readingGroup, reticleGroup).forEach(anchor::addChild)
     }
 
     /** Sky, dais and the armillary. The panorama is painted off the main thread. */
     suspend fun buildEnvironment() {
         val bitmap = withContext(Dispatchers.Default) { SkyPanorama.render() }
-        sky = SkyDome(TextureResource.create(bitmap)).also {
-            it.setEyeHeight(anchor.eyeHeightM)
-            anchor.addChild(it)
-        }
+        sky = SkyDome(TextureResource.create(bitmap)).also(anchor::addChild)
         anchor.addChild(Dais())
-        armillary =
-            Armillary().also {
-                it.components[TransformComponent::class.java]?.setPosition(anchor.board(2.5f, 800f, ARMILLARY_BOARD_Y))
-                anchor.addChild(it)
-            }
+        armillary = Armillary().also(anchor::addChild)
         ready = true
     }
 
-    /** Parents each panel entity to the anchor at the pose its spec describes. */
-    fun place(specs: List<PanelSpec>, entityOf: (Any) -> Entity?) {
-        specs.forEach { spec ->
-            val position =
-                spec.boardCenterPx?.let { anchor.board(spec.distanceM, it.first, it.second) }
-                    ?: anchor.polar(spec.distanceM, spec.azimuthDeg, spec.elevationDeg)
-            entityOf(spec.id)?.let { place(it, spec, position) }
+    fun bindPanels(entityOf: (Any) -> Entity?) {
+        this.entityOf = entityOf
+    }
+
+    /** Centres the layout on the head pose and lays every panel out again for the new eye height. */
+    fun calibrate(headPosition: Vector3, headRotation: Quat) {
+        anchor.calibrate(headPosition, headRotation)
+        anchorRotation = anchor.components[TransformComponent::class.java]?.quaternion ?: Quat.identity()
+        neutral = headRotation.toDomain()
+        followYawDeg = 0f
+        followEase = -1f
+        readingYawDeg = 0f
+        readingPitchDeg = 0f
+        val eye = Vector3(0f, anchor.eyeHeightM, 0f)
+        listOf(followGroup, readingGroup, reticleGroup).forEach {
+            it.components[TransformComponent::class.java]?.apply {
+                setPosition(eye)
+                setQuaternion(Quat.identity())
+            }
+        }
+        sky?.setEyeHeight(anchor.eyeHeightM)
+        armillary?.components?.get(TransformComponent::class.java)?.setPosition(anchor.board(2.5f, 800f, ARMILLARY_BOARD_Y))
+        gauge?.destroy()
+        gauge = TestGauge(anchor.eyeHeightM, numerals).also {
+            it.enabled = false
+            anchor.addChild(it)
+        }
+        // The light the user looks at to calibrate: straight ahead on the line of sight, 2.5 m away.
+        calibrationPoint?.destroy()
+        calibrationPoint =
+            Entity().also { point ->
+                val at = anchor.board(2.5f, 800f, 450f)
+                val centre = com.armilla.neckcare.scene.geometry.Vec3(at.x, at.y, at.z)
+                val data = com.armilla.neckcare.scene.geometry.MeshData()
+                SceneKit.model(data.sphere(centre, 0.028f), SceneKit.material(SceneColor.AMBER), "calibration_point")?.let(point::addChild)
+                SceneKit.model(
+                    com.armilla.neckcare.scene.geometry.MeshData().sphere(centre, 0.075f),
+                    SceneKit.material(SceneColor.AMBER, 0.22f, additive = true),
+                    "calibration_halo",
+                )?.let(point::addChild)
+                point.enabled = shownStage == SessionStage.CALIBRATING
+                anchor.addChild(point)
+            }
+        shownDirection = null
+        (LobbyPanels.fixed + SessionPanels.all).forEach(::place)
+        shownAngles?.let { angles ->
+            shownAngles = null
+            showLobby(angles)
         }
     }
 
-    private fun place(entity: Entity, spec: PanelSpec, position: Vector3) {
+    private fun panel(spec: PanelSpec): Entity? =
+        panels[spec.id] ?: entityOf?.invoke(spec.id)?.also { panels[spec.id] = it }
+
+    private fun place(spec: PanelSpec) {
+        val position =
+            spec.boardCenterPx?.let { anchor.board(spec.distanceM, it.first, it.second) }
+                ?: anchor.polar(spec.distanceM, spec.azimuthDeg, spec.elevationDeg)
+        place(spec, position)
+    }
+
+    private fun place(spec: PanelSpec, anchorLocal: Vector3) {
+        val entity = panel(spec) ?: return
+        val parent =
+            when (spec.group) {
+                PanelGroup.WORLD -> anchor
+                PanelGroup.FOLLOW -> followGroup
+                PanelGroup.READING -> readingGroup
+                PanelGroup.RETICLE -> reticleGroup
+            }
+        // Groups sit at the eyes, so their children are placed relative to the eye point.
+        val local =
+            if (parent === anchor) anchorLocal
+            else Vector3(anchorLocal.x, anchorLocal.y - anchor.eyeHeightM, anchorLocal.z)
         entity.components[TransformComponent::class.java]?.apply {
-            setPosition(position)
+            setPosition(local)
             setQuaternion(StageAnchor.yaw(spec.yawDeg) * StageAnchor.pitch(spec.pitchDeg))
             val scale = spec.entityScale(density)
             setScaleVector(Vector3(scale, scale, scale))
         }
-        if (entity.getParent() == null) anchor.addChild(entity)
+        if (entity.getParent() !== parent) parent.addChild(entity)
     }
 
-    /** Lobby content: arcs for the last measurement and a tag at the end of each arc. */
-    fun showLobby(angles: Map<Direction, Int>, entityOf: (Any) -> Entity?) {
+    /** Lobby content: arcs for the last measurement and a tag in each of the six design slots. */
+    fun showLobby(angles: Map<Direction, Int>) {
         val model = armillary ?: return
         if (!ready || angles == shownAngles) return
         shownAngles = angles
         model.show(angles)
         val centre = anchor.board(2.5f, 800f, ARMILLARY_BOARD_Y)
         Direction.entries.forEach { direction ->
-            val spec = LobbyPanels.tag(direction.key)
-            val entity = entityOf(spec.id) ?: return@forEach
-            // Tag centres as drawn on the lobby board, in artboard px from the armillary centre.
             val (dx, dy) = TAG_SLOTS.getValue(direction)
-            val m = 0.003125f
-            // Slightly in front of the rings so a ring never cuts through a label.
-            place(entity, spec, Vector3(centre.x + dx * m, centre.y - dy * m, centre.z + TAG_LIFT_M))
-            entity.enabled = angles[direction] != null
+            place(
+                LobbyPanels.tag(direction.key),
+                Vector3(centre.x + dx * PX_M, centre.y - dy * PX_M, centre.z + TAG_LIFT_M),
+            )
         }
+        applyVisibility(shownStage ?: SessionStage.LOBBY, shownPaused)
+    }
+
+    /** One frame: follow groups, calibration and test sampling, gauge redraw. */
+    fun onFrame(dt: Float, headPosition: Vector3, headRotation: Quat, session: SessionViewModel) {
+        if (!ready || headPosition.y < 0.2f) return
+        val state = session.state.value
+
+        if (state.stage != shownStage || state.paused != shownPaused) {
+            if (state.stage == SessionStage.CALIBRATING && shownStage != SessionStage.CALIBRATING) {
+                // Put the calibration point wherever the user is facing now.
+                calibrate(headPosition, headRotation)
+            }
+            shownStage = state.stage
+            shownPaused = state.paused
+            applyVisibility(state.stage, state.paused)
+        }
+
+        val local = anchorRotation.conjugate() * headRotation
+        val forward = local.rotateVector(Vector3(0f, 0f, -1f))
+        val yawDeg = Math.toDegrees(atan2(forward.x, -forward.z).toDouble()).toFloat()
+        val pitchDeg = Math.toDegrees(asin(forward.y.coerceIn(-1f, 1f)).toDouble()).toFloat()
+        val speedDps = lastForward?.let { angleBetween(it, forward) / dt.coerceAtLeast(1e-4f) } ?: 0f
+        lastForward = forward
+        if (state.stage == SessionStage.LOBBY || state.stage == SessionStage.RESULT) return
+
+        reticleGroup.components[TransformComponent::class.java]?.setQuaternion(gaze(yawDeg, pitchDeg))
+        val blend = (dt / READING_SMOOTHING_S).coerceIn(0f, 1f)
+        readingYawDeg += (yawDeg - readingYawDeg) * blend
+        readingPitchDeg += (pitchDeg - readingPitchDeg) * blend
+        readingGroup.components[TransformComponent::class.java]?.setQuaternion(gaze(readingYawDeg, readingPitchDeg))
+        lazyFollow(dt, yawDeg)
+        if (state.paused) return
+
+        when (state.stage) {
+            SessionStage.CALIBRATING -> {
+                val aim = angleBetween(forward, Vector3(0f, 0f, -1f))
+                if (session.onCalibrationFrame(dt, aim, speedDps)) calibrate(headPosition, headRotation)
+            }
+            SessionStage.TESTING -> {
+                val angles = HeadAngleCalculator.angles(neutral, headRotation.toDomain())
+                session.onSweep(angles)
+                session.onTestFrame(dt, angles)
+                val now = session.state.value
+                val direction = now.current ?: return
+                if (direction != shownDirection) {
+                    shownDirection = direction
+                    gauge?.configure(direction, now.lastAngleDeg)
+                    val last = now.lastAngleDeg
+                    panel(SessionPanels.LastTag)?.enabled = last != null
+                    if (last != null) gauge?.lastTagPosition(direction, last)?.let { place(SessionPanels.LastTag, it) }
+                }
+                gauge?.setAngle(session.sweepAngleDeg, angles.lateralDeg)
+            }
+            else -> Unit
+        }
+    }
+
+    private fun lazyFollow(dt: Float, yawDeg: Float) {
+        if (followEase >= 0f) {
+            followEase = (followEase + dt / FOLLOW_EASE_S).coerceAtMost(1f)
+            val t = followEase * followEase * (3f - 2f * followEase)
+            followYawDeg = followFromDeg + (followToDeg - followFromDeg) * t
+            if (followEase >= 1f) followEase = -1f
+        } else {
+            awaySeconds = if (abs(yawDeg - followYawDeg) > FOLLOW_THRESHOLD_DEG) awaySeconds + dt else 0f
+            if (awaySeconds >= FOLLOW_DELAY_S) {
+                awaySeconds = 0f
+                followFromDeg = followYawDeg
+                followToDeg = yawDeg
+                followEase = 0f
+            }
+        }
+        followGroup.components[TransformComponent::class.java]?.setQuaternion(StageAnchor.yaw(-followYawDeg))
+    }
+
+    private fun applyVisibility(stage: SessionStage, paused: Boolean) {
+        val lobby = stage == SessionStage.LOBBY
+        val testing = stage == SessionStage.TESTING
+        val calibrating = stage == SessionStage.CALIBRATING
+        LobbyPanels.fixed.filter { it != LobbyPanels.Console }.forEach { panel(it)?.enabled = lobby }
+        panel(LobbyPanels.Console)?.enabled = lobby || stage == SessionStage.RESULT
+        Direction.entries.forEach { d -> panel(LobbyPanels.tag(d.key))?.enabled = lobby && shownAngles?.get(d) != null }
+        armillary?.enabled = lobby
+        gauge?.enabled = testing
+        calibrationPoint?.enabled = calibrating
+        panel(SessionPanels.Steps)?.enabled = testing
+        panel(SessionPanels.Reading)?.enabled = testing && !paused
+        panel(SessionPanels.Instruction)?.enabled = (testing || calibrating) && !paused
+        panel(SessionPanels.Reticle)?.enabled = (testing || calibrating) && !paused
+        panel(SessionPanels.Console)?.enabled = !lobby && stage != SessionStage.RESULT
+        panel(SessionPanels.Pause)?.enabled = paused
+        if (!testing) panel(SessionPanels.LastTag)?.enabled = false
     }
 
     fun destroy() {
         anchor.destroy()
     }
 
+    private fun gaze(yawDeg: Float, pitchDeg: Float): Quat = StageAnchor.yaw(-yawDeg) * StageAnchor.pitch(pitchDeg)
+
+    private fun angleBetween(a: Vector3, b: Vector3): Float {
+        val dot = (a.x * b.x + a.y * b.y + a.z * b.z).coerceIn(-1f, 1f)
+        return Math.toDegrees(acos(dot).toDouble()).toFloat()
+    }
+
+    private fun Quat.toDomain() = Quaternion(x, y, z, w)
+
     private companion object {
         /** Armillary centre on the lobby board. */
         const val ARMILLARY_BOARD_Y = 392f
+        const val PX_M = 0.003125f
         const val TAG_LIFT_M = 0.05f
+        const val FOLLOW_THRESHOLD_DEG = 30f
+        const val FOLLOW_DELAY_S = 0.6f
+        const val FOLLOW_EASE_S = 0.8f
+        const val READING_SMOOTHING_S = 0.12f
+
+        /** Tag centres as drawn on the lobby board, in artboard px from the armillary centre. */
         val TAG_SLOTS =
             mapOf(
                 Direction.EXTENSION to (-25f to -182f),

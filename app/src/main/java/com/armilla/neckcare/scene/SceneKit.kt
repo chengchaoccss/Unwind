@@ -10,6 +10,7 @@ import com.pico.spatial.core.ecs.resource.MeshModel
 import com.pico.spatial.core.ecs.resource.MeshResource
 import com.pico.spatial.core.ecs.resource.UnlitMaterial
 import com.pico.spatial.core.math.Color4
+import com.pico.spatial.core.math.Vector2
 import com.pico.spatial.core.math.Vector3
 
 /** The design's scene colours as linear-free RGB triples; alpha is supplied per use. */
@@ -44,11 +45,22 @@ object SceneKit {
         }
     }
 
+    /** Unlit material showing [bitmap] with its own alpha; used for drawn scales and halos. */
+    fun textured(bitmap: android.graphics.Bitmap, additive: Boolean = false): UnlitMaterial =
+        UnlitMaterial.create(if (additive) BlendingMode.ADD else BlendingMode.TRANSPARENT).apply {
+            setBaseColorTexture(com.pico.spatial.core.ecs.resource.TextureResource.create(bitmap))
+            setApplyToneMapping(false)
+            setCullingMode(MaterialCullingMode.NONE)
+            setDepthWrite(false)
+        }
+
     fun mesh(data: MeshData, name: String): MeshResource =
         MeshResource.createWithMeshModel(
             MeshModel(
                 positions = data.positions.map { Vector3(it.x, it.y, it.z) },
                 triangleIndices = data.indices,
+                // Texture V runs bottom-up in this engine (measured on device).
+                uv0 = data.uvs.takeIf { it.size == data.positions.size }?.map { Vector2(it.first, 1f - it.second) },
             ),
             null,
             name,

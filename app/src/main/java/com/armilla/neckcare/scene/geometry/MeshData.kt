@@ -38,6 +38,9 @@ class MeshData {
     val positions = ArrayList<Vec3>()
     val indices = ArrayList<Int>()
 
+    /** Texture coordinates (u, v with v = 0 at the top); either empty or one per position. */
+    val uvs = ArrayList<Pair<Float, Float>>()
+
     val isEmpty: Boolean
         get() = indices.isEmpty()
 
@@ -128,6 +131,35 @@ class MeshData {
             val a = base + i * 2
             indices += listOf(a, a + 1, a + 2, a + 2, a + 1, a + 3)
         }
+        return this
+    }
+
+    /**
+     * Textured ribbon through [centres], [halfWidth] to each side along [across]. u runs 0..1
+     * along the ribbon, v is 0 on the +across edge and 1 on the other.
+     */
+    fun ribbon(centres: List<Vec3>, across: List<Vec3>, halfWidth: Float): MeshData {
+        val base = positions.size
+        val last = (centres.size - 1).coerceAtLeast(1)
+        centres.forEachIndexed { i, c ->
+            positions += c + across[i] * halfWidth
+            uvs += (i / last.toFloat()) to 0f
+            positions += c - across[i] * halfWidth
+            uvs += (i / last.toFloat()) to 1f
+        }
+        for (i in 0 until centres.size - 1) {
+            val a = base + i * 2
+            indices += listOf(a, a + 1, a + 2, a + 2, a + 1, a + 3)
+        }
+        return this
+    }
+
+    /** Textured rectangle centred on [center], spanned by [right] and [up] half-extents. */
+    fun quad(center: Vec3, right: Vec3, up: Vec3): MeshData {
+        val base = positions.size
+        positions += listOf(center - right + up, center + right + up, center - right - up, center + right - up)
+        uvs += listOf(0f to 0f, 1f to 0f, 0f to 1f, 1f to 1f)
+        indices += listOf(base, base + 2, base + 1, base + 1, base + 2, base + 3)
         return this
     }
 

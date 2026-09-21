@@ -10,6 +10,21 @@ import kotlin.math.roundToInt
  * the eyes, azimuth to the right of straight ahead, elevation above the line of sight, and how far
  * the panel is turned (yaw, toward the user) or tilted back (pitch).
  */
+/** How a panel moves with the head (PRD §4 "跟随规则"). */
+enum class PanelGroup {
+    /** World fixed, like the lobby and result panels. */
+    WORLD,
+
+    /** Eases back in front after the gaze has been more than 30° away for 0.6 s. */
+    FOLLOW,
+
+    /** Stays beside the gaze with a little smoothing: the big reading. */
+    READING,
+
+    /** The gaze cursor itself. */
+    RETICLE,
+}
+
 data class PanelSpec(
     val id: String,
     val widthPx: Int,
@@ -21,6 +36,7 @@ data class PanelSpec(
     val pitchDeg: Float = 0f,
     /** When set, the panel centre is this artboard point on a plane at [distanceM] (far layer). */
     val boardCenterPx: Pair<Float, Float>? = null,
+    val group: PanelGroup = PanelGroup.WORLD,
 ) {
     /**
      * Texture pixels per artboard pixel. AttachmentPanel content beyond about 2048 x 1280 px is
@@ -66,6 +82,35 @@ object LobbyPanels {
     /** H-09: near-field console, 35° below the line of sight, tilted back to face the eyes. */
     val Console = PanelSpec("console", 680, 90, DesignScale.NEAR_M, elevationDeg = -35f, pitchDeg = -36f)
 
+    /** Panels with a fixed place; the six tags are placed by the scene. */
+    val fixed by lazy { listOf(Caption, Actions, Today, Trend, Console) }
+
     /** H-04: one tag per direction, placed by the armillary at the end of each arc. */
     fun tag(key: String) = PanelSpec("lobby_tag_$key", 200, 56, DesignScale.FAR_M)
+}
+
+/** Panels of calibration and the mobility test (活动度测试), measured off the artboard. */
+object SessionPanels {
+    /** T-01: step bar, top centre. */
+    val Steps = PanelSpec("test_steps", 720, 84, DesignScale.MAIN_M, boardCenterPx = 800f to 102f, group = PanelGroup.FOLLOW)
+
+    /** T-08: instruction bar, 940 px wide, below the line of sight. */
+    val Instruction = PanelSpec("test_instruction", 940, 116, DesignScale.MAIN_M, boardCenterPx = 800f to 722f, group = PanelGroup.FOLLOW)
+
+    /** T-07: big reading to the right of the reticle, slightly above the line of sight. */
+    val Reading = PanelSpec("test_reading", 330, 230, DesignScale.FAR_M, boardCenterPx = 1025f to 412f, group = PanelGroup.READING)
+
+    /** T-06: the reticle sits at the centre of view. */
+    val Reticle = PanelSpec("reticle", 80, 80, DesignScale.FAR_M, boardCenterPx = 800f to 450f, group = PanelGroup.RETICLE)
+
+    /** T-05: "上次 71°", placed by the gauge next to the dashed mark. */
+    val LastTag = PanelSpec("test_last", 180, 56, DesignScale.FAR_M)
+
+    /** T-10: exercise console with 暂停 and 下一项. */
+    val Console = PanelSpec("console_session", 480, 90, DesignScale.NEAR_M, elevationDeg = -35f, pitchDeg = -36f)
+
+    /** Pause panel, straight ahead on the main layer (not drawn in the design). */
+    val Pause = PanelSpec("pause", 480, 470, DesignScale.MAIN_M, boardCenterPx = 800f to 440f, group = PanelGroup.FOLLOW)
+
+    val all = listOf(Steps, Instruction, Reading, Reticle, LastTag, Console, Pause)
 }
