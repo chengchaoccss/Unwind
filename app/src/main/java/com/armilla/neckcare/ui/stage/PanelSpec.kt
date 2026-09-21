@@ -163,3 +163,8 @@ object PunchPanels {
 
     val all = listOf(Status, Count)
 }
+
+/** The one full page in front of the user: onboarding, 记录, 课程, 设置. Not drawn in the design. */
+object PagePanels {
+    val Page = PanelSpec("page", 780, 712, DesignScale.MAIN_M, boardCenterPx = 800f to 410f)
+}

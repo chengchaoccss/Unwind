@@ -43,6 +43,21 @@ import com.armilla.neckcare.ui.result.components.NextWeekPanel
 import com.armilla.neckcare.ui.result.components.ResultPanel
 import com.armilla.neckcare.platform.AmbientPlayer
 import com.armilla.neckcare.platform.CuePlayer
+import com.armilla.neckcare.data.repository.CsvExporter
+import com.armilla.neckcare.platform.Reminders
+import com.armilla.neckcare.ui.navigation.MainEvent
+import com.armilla.neckcare.ui.navigation.MainPage
+import com.armilla.neckcare.ui.navigation.MainViewModel
+import com.armilla.neckcare.ui.navigation.OnboardingStep
+import com.armilla.neckcare.ui.pages.CoursesPage
+import com.armilla.neckcare.ui.pages.DeleteConfirmPage
+import com.armilla.neckcare.ui.pages.HealthNoticePage
+import com.armilla.neckcare.ui.pages.PosturePage
+import com.armilla.neckcare.ui.pages.RecordsPage
+import com.armilla.neckcare.ui.pages.ReminderSetupPage
+import com.armilla.neckcare.ui.pages.SettingsPage
+import com.armilla.neckcare.ui.records.RecordsEvent
+import com.armilla.neckcare.ui.records.RecordsViewModel
 import com.armilla.neckcare.ui.session.SessionCue
 import com.armilla.neckcare.ui.session.SessionEvent
 import com.armilla.neckcare.ui.session.components.ShoulderCentrePanel
@@ -83,6 +98,26 @@ fun ArmillaStage() {
                     SessionViewModel(AppContainer.sessions, autoAdjust = { AppContainer.settings.settings.value.autoAdjust })
                 }
         )
+    val main: MainViewModel =
+        viewModel(
+            factory =
+                AppContainer.factory {
+                    val exporter = CsvExporter(context.applicationContext, AppContainer.sessions) { AppContainer.settings.settings.value.posture.name.lowercase() }
+                    MainViewModel(
+                        AppContainer.settings,
+                        AppContainer.sessions,
+                        export = exporter::export,
+                        batteryPercent = {
+                            context.getSystemService(android.os.BatteryManager::class.java)
+                                ?.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                                ?.takeIf { it in 1..100 }
+                        },
+                    )
+                }
+        )
+    val records: RecordsViewModel = viewModel(factory = AppContainer.factory { RecordsViewModel(AppContainer.sessions) })
+    val mainState by main.state.collectAsStateWithLifecycle()
+    val recordsState by records.state.collectAsStateWithLifecycle()
     val lobbyState by lobby.state.collectAsStateWithLifecycle()
     val sessionState by session.state.collectAsStateWithLifecycle()
     val settings by AppContainer.settings.settings.collectAsStateWithLifecycle()
@@ -140,6 +175,26 @@ fun ArmillaStage() {
             null -> Unit
         }
     }
+    LaunchedEffect(mainState.reminderSerial, settings.remindersEnabled) { Reminders.schedule(context.applicationContext, settings) }
+    LaunchedEffect(mainState.page) { if (mainState.page == MainPage.RECORDS) records.onEvent(RecordsEvent.Refresh) }
+    LaunchedEffect(sessionState.stage) { if (sessionState.stage == SessionStage.RESULT) main.onSessionFinished() }
+    // Taking the headset off, or the system menu coming up, pauses the session and the music.
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer =
+            androidx.lifecycle.LifecycleEventObserver { _, event ->
+                when (event) {
+                    androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> {
+                        session.onEvent(SessionEvent.Pause)
+                        ambient.pause()
+                    }
+                    androidx.lifecycle.Lifecycle.Event.ON_RESUME -> ambient.resume()
+                    else -> Unit
+                }
+            }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     // Back in the lobby after a session: show the new measurement.
     LaunchedEffect(sessionState.stage) {
         if (sessionState.stage == SessionStage.LOBBY) lobby.onEvent(LobbyEvent.Refresh)
@@ -156,23 +211,28 @@ fun ArmillaStage() {
                 }
 
             // 大厅
-            panel(LobbyPanels.Caption) { ArmillaryCaption(lobbyState.armillaryTitle, lobbyState.armillarySubtitle) }
+            panel(LobbyPanels.Caption) { ArmillaryCaption(lobbyState.armillaryTitle, mainState.notice ?: lobbyState.armillarySubtitle) }
             panel(LobbyPanels.Actions) {
                 LobbyActions(
-                    onStart = { session.onEvent(SessionEvent.Start(SessionMode.FULL)) },
-                    onTestOnly = { session.onEvent(SessionEvent.Start(SessionMode.TEST_ONLY)) },
+                    onStart = { if (main.mayStartSession()) session.onEvent(SessionEvent.Start(SessionMode.FULL)) },
+                    onTestOnly = { if (main.mayStartSession()) session.onEvent(SessionEvent.Start(SessionMode.TEST_ONLY)) },
                 )
             }
             panel(LobbyPanels.Today) { TodayPanel(lobbyState) }
             panel(LobbyPanels.Trend) { TrendPanel(lobbyState) }
             panel(LobbyPanels.Console) {
                 val inResult = sessionState.stage == SessionStage.RESULT
+                // Leaving the result screen through the console also closes the session.
+                val go = { page: MainPage ->
+                    if (inResult) session.onEvent(SessionEvent.Done)
+                    main.onEvent(MainEvent.Navigate(page))
+                }
                 ConsoleBar(
                     listOf(
-                        ConsoleItem(ConsoleIcon.LOBBY, "大厅", selected = !inResult) { session.onEvent(SessionEvent.Done) },
-                        ConsoleItem(ConsoleIcon.RECORDS, "记录", selected = inResult) {},
-                        ConsoleItem(ConsoleIcon.COURSES, "课程", selected = false) {},
-                        ConsoleItem(ConsoleIcon.SETTINGS, "设置", selected = false) {},
+                        ConsoleItem(ConsoleIcon.LOBBY, "大厅", selected = !inResult && mainState.page == MainPage.LOBBY) { go(MainPage.LOBBY) },
+                        ConsoleItem(ConsoleIcon.RECORDS, "记录", selected = inResult || mainState.page == MainPage.RECORDS) { go(MainPage.RECORDS) },
+                        ConsoleItem(ConsoleIcon.COURSES, "课程", selected = mainState.page == MainPage.COURSES) { go(MainPage.COURSES) },
+                        ConsoleItem(ConsoleIcon.SETTINGS, "设置", selected = mainState.page == MainPage.SETTINGS) { go(MainPage.SETTINGS) },
                     )
                 )
             }
@@ -181,6 +241,22 @@ fun ArmillaStage() {
                     lobbyState.angles[direction]?.let { angle ->
                         ReadingTag(direction.label, "$angle°", valueColor = sideColor(direction.side))
                     }
+                }
+            }
+
+            // 首次引导、记录、课程、设置
+            panel(PagePanels.Page) {
+                when {
+                    mainState.onboarding == OnboardingStep.HEALTH || mainState.reviewingHealthNotice ->
+                        HealthNoticePage { main.onEvent(MainEvent.HealthAccepted) }
+                    mainState.onboarding == OnboardingStep.POSTURE -> PosturePage { main.onEvent(MainEvent.PostureChosen(it)) }
+                    mainState.onboarding == OnboardingStep.REMINDERS ->
+                        ReminderSetupPage(settings.reminderTimes) { main.onEvent(MainEvent.RemindersChosen(it)) }
+                    mainState.confirmingDelete ->
+                        DeleteConfirmPage({ main.onEvent(MainEvent.CancelDelete) }, { main.onEvent(MainEvent.ConfirmDelete) })
+                    mainState.page == MainPage.RECORDS -> RecordsPage(recordsState, records::onEvent)
+                    mainState.page == MainPage.COURSES -> CoursesPage()
+                    mainState.page == MainPage.SETTINGS -> SettingsPage(settings, mainState.message, main::onEvent)
                 }
             }
 
@@ -251,6 +327,8 @@ fun ArmillaStage() {
             }
         },
         update = { _, _ ->
+            scene.pageOpen = mainState.pageOpen
+            scene.ringRadiusM = settings.ringRadiusM
             scene.showLobby(lobbyState.angles)
             scene.showResult(resultState.angles)
         },
@@ -262,8 +340,19 @@ fun ArmillaStage() {
         scene.calibrate(first.hmdPose.position, first.hmdPose.rotation)
         scene.showLobby(lobbyState.angles)
         Log.i(TAG, "stage ready, eye height ${scene.anchor.eyeHeightM} m")
-        // Debug builds: a marker file starts a test straight away, for unattended captures.
+        // Debug builds only: marker files jump to a screen, for unattended captures.
         val debuggable = context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
+        if (debuggable) {
+            val files = context.getExternalFilesDir(null)
+            if (java.io.File(files, "skip_onboarding").exists()) {
+                main.onEvent(MainEvent.HealthAccepted)
+                main.onEvent(MainEvent.PostureChosen(com.armilla.neckcare.data.repository.Posture.SEATED))
+                main.onEvent(MainEvent.RemindersChosen(true))
+            }
+            java.io.File(files, "autostart_page").takeIf { it.exists() }?.readText()?.trim()?.let { name ->
+                runCatching { MainPage.valueOf(name.uppercase()) }.getOrNull()?.let { main.onEvent(MainEvent.Navigate(it)) }
+            }
+        }
         if (debuggable && java.io.File(context.getExternalFilesDir(null), "autostart_result").exists()) {
             session.finishWithReadingsForCapture(
                 SessionMode.FULL,

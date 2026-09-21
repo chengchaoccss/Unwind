@@ -88,6 +88,12 @@ class SessionViewModel(
         }
     }
 
+    /** PRD §10: tracking lost for more than 3 s pauses the session and says what to do. */
+    fun pauseForTrackingLoss() {
+        if (!isRunning() || _state.value.paused) return
+        _state.update { it.copy(paused = true, instruction = "追踪丢失，请看向明亮处") }
+    }
+
     private fun isRunning() = _state.value.stage !in setOf(SessionStage.LOBBY, SessionStage.RESULT)
 
     private fun start(mode: SessionMode) {

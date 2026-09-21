@@ -16,6 +16,7 @@ import com.armilla.neckcare.ui.stage.LobbyPanels
 import com.armilla.neckcare.ui.stage.OrbPanels
 import com.armilla.neckcare.ui.stage.PanelGroup
 import com.armilla.neckcare.domain.usecase.Point3
+import com.armilla.neckcare.ui.stage.PagePanels
 import com.armilla.neckcare.ui.stage.PanelSpec
 import com.armilla.neckcare.ui.stage.PunchPanels
 import com.armilla.neckcare.ui.stage.ResultPanels
@@ -48,6 +49,19 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
     private var shoulderScene: ShoulderScene? = null
     private var shoulderLogTimer = 0f
     private var punchScene: PunchScene? = null
+    private var trackingLostSeconds = 0f
+
+    /** Radius of the shoulder guide rings, from settings. */
+    var ringRadiusM = 0.19f
+
+    /** True while onboarding or one of 记录 / 课程 / 设置 covers the centre of the lobby. */
+    var pageOpen = false
+        set(value) {
+            if (field != value) {
+                field = value
+                applyVisibility(shownStage ?: SessionStage.LOBBY, shownPaused)
+            }
+        }
 
     /** Palm positions in stage space, supplied by the stage every frame; null while untracked. */
     var leftHand: Vector3? = null
@@ -135,7 +149,7 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
             }
         shownDirection = null
         // Panels go back to the centred layout; layoutForAxis moves them again when needed.
-        (LobbyPanels.fixed + SessionPanels.all + ResultPanels.all + listOf(OrbPanels.Status, OrbPanels.Hint) + ShoulderPanels.all + PunchPanels.all).forEach(::place)
+        (LobbyPanels.fixed + SessionPanels.all + ResultPanels.all + listOf(OrbPanels.Status, OrbPanels.Hint) + ShoulderPanels.all + PunchPanels.all + PagePanels.Page).forEach(::place)
         shownAngles?.let { angles ->
             shownAngles = null
             showLobby(angles)
@@ -236,7 +250,12 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
     fun onFrame(dt: Float, headPosition: Vector3, headRotation: Quat, session: SessionViewModel) {
         if (!ready) return
         meteors?.update(dt)
-        if (headPosition.y < 0.2f) return
+        if (headPosition.y < 0.2f) {
+            trackingLostSeconds += dt
+            if (trackingLostSeconds > 3f) session.pauseForTrackingLoss()
+            return
+        }
+        trackingLostSeconds = 0f
         val state = session.state.value
 
         if (state.stage != shownStage || state.paused != shownPaused) {
@@ -252,7 +271,7 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
                 orbScene = null
             }
             if (state.stage == SessionStage.SHOULDER && shoulderScene == null) {
-                shoulderScene = ShoulderScene(anchor.eyeHeightM).also(anchor::addChild)
+                shoulderScene = ShoulderScene(anchor.eyeHeightM, ringRadiusM).also(anchor::addChild)
             }
             if (state.stage == SessionStage.PUNCH && punchScene == null) punchScene = PunchScene(anchor.eyeHeightM).also(anchor::addChild)
             if (state.stage != SessionStage.PUNCH && shownStage == SessionStage.PUNCH) {
@@ -378,11 +397,16 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
         val lobby = stage == SessionStage.LOBBY
         val testing = stage == SessionStage.TESTING
         val calibrating = stage == SessionStage.CALIBRATING
-        LobbyPanels.fixed.filter { it != LobbyPanels.Console }.forEach { panel(it)?.enabled = lobby }
+        val centre = lobby && !pageOpen
+        panel(LobbyPanels.Caption)?.enabled = centre
+        panel(LobbyPanels.Actions)?.enabled = centre
+        panel(LobbyPanels.Today)?.enabled = lobby
+        panel(LobbyPanels.Trend)?.enabled = lobby
+        panel(PagePanels.Page)?.enabled = lobby && pageOpen
         panel(LobbyPanels.Console)?.enabled = lobby || stage == SessionStage.RESULT
-        Direction.entries.forEach { d -> panel(LobbyPanels.tag(d.key))?.enabled = lobby && shownAngles?.get(d) != null }
+        Direction.entries.forEach { d -> panel(LobbyPanels.tag(d.key))?.enabled = centre && shownAngles?.get(d) != null }
         val result = stage == SessionStage.RESULT
-        armillary?.enabled = lobby || result
+        armillary?.enabled = centre || result
         applyArmillary(stage)
         ResultPanels.all.forEach { panel(it)?.enabled = result }
         gauge?.enabled = testing
