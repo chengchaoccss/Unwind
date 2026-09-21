@@ -44,6 +44,8 @@ import com.armilla.neckcare.ui.session.SessionEvent
 import com.armilla.neckcare.ui.session.SessionStage
 import com.armilla.neckcare.ui.session.SessionViewModel
 import com.armilla.neckcare.ui.session.components.BigReading
+import com.armilla.neckcare.ui.session.components.ExerciseStatusBar
+import com.armilla.neckcare.ui.session.components.GentleHint
 import com.armilla.neckcare.ui.session.components.GazeReticle
 import com.armilla.neckcare.ui.session.components.InstructionBar
 import com.armilla.neckcare.ui.session.components.PausePanel
@@ -68,7 +70,12 @@ fun ArmillaStage() {
     val density = LocalDensity.current
     val lobby: LobbyViewModel =
         viewModel(factory = AppContainer.factory { LobbyViewModel(AppContainer.sessions, AppContainer.settings) })
-    val session: SessionViewModel = viewModel(factory = AppContainer.factory { SessionViewModel(AppContainer.sessions) })
+    val session: SessionViewModel = viewModel(
+            factory =
+                AppContainer.factory {
+                    SessionViewModel(AppContainer.sessions, autoAdjust = { AppContainer.settings.settings.value.autoAdjust })
+                }
+        )
     val lobbyState by lobby.state.collectAsStateWithLifecycle()
     val sessionState by session.state.collectAsStateWithLifecycle()
     val settings by AppContainer.settings.settings.collectAsStateWithLifecycle()
@@ -172,6 +179,16 @@ fun ArmillaStage() {
                     itemPaddingPx = 56,
                 )
             }
+            // 视线接光球
+            panel(OrbPanels.Status) { ExerciseStatusBar("视线接光球", sessionState.orbTimeProgress, sessionState.orbRemaining) }
+            panel(OrbPanels.Hint) { GentleHint(sessionState.orbHint) }
+            panel(OrbPanels.Count) {
+                ReadingTag("已接住", "${sessionState.orbCaught}", valueSizePx = 34, trailing = "共 ${sessionState.orbTotal} 个")
+            }
+            panel(OrbPanels.Boundary) {
+                ReadingTag("你的活动边界，光球不会越过", value = null, labelColor = ArmillaColors.Jade)
+            }
+
             // 今日数据
             panel(ResultPanels.Main) {
                 ResultPanel(
@@ -218,6 +235,16 @@ fun ArmillaStage() {
                     Direction.FLEXION to 47, Direction.EXTENSION to 59,
                     Direction.LEFT_BEND to 37, Direction.RIGHT_BEND to 42,
                 ),
+            )
+        } else if (debuggable && java.io.File(context.getExternalFilesDir(null), "autostart_orb").exists()) {
+            session.finishWithReadingsForCapture(
+                SessionMode.FULL,
+                mapOf(
+                    Direction.LEFT_ROTATION to 64, Direction.RIGHT_ROTATION to 71,
+                    Direction.FLEXION to 47, Direction.EXTENSION to 59,
+                    Direction.LEFT_BEND to 37, Direction.RIGHT_BEND to 42,
+                ),
+                thenExercise = true,
             )
         } else if (debuggable && java.io.File(context.getExternalFilesDir(null), "autostart_test").exists()) {
             session.calibrationAimDeg = 45f

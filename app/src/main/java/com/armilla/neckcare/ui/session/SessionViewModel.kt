@@ -4,11 +4,18 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.armilla.neckcare.data.repository.SessionRepository
 import com.armilla.neckcare.domain.model.Direction
+import com.armilla.neckcare.domain.model.ExerciseResult
+import com.armilla.neckcare.domain.model.ExerciseType
 import com.armilla.neckcare.domain.model.Measurement
 import com.armilla.neckcare.domain.model.MeasurementStatus
 import com.armilla.neckcare.domain.model.SessionMode
 import com.armilla.neckcare.domain.model.TestResult
 import com.armilla.neckcare.domain.usecase.DwellRecorder
+import com.armilla.neckcare.domain.usecase.GazePoint
+import com.armilla.neckcare.domain.usecase.OrbExercise
+import com.armilla.neckcare.domain.usecase.OrbPath
+import com.armilla.neckcare.domain.usecase.OrbPathGenerator
+import com.armilla.neckcare.domain.usecase.OrbSnapshot
 import com.armilla.neckcare.domain.usecase.HeadAngles
 import com.armilla.neckcare.domain.usecase.MobilityInsights
 import com.armilla.neckcare.domain.usecase.RecorderConfig
@@ -30,6 +37,7 @@ class SessionViewModel(
     private val insights: MobilityInsights = MobilityInsights(),
     private val config: RecorderConfig = RecorderConfig(),
     private val clock: () -> Long = System::currentTimeMillis,
+    private val autoAdjust: () -> Boolean = { true },
 ) : ViewModel() {
     private val _state = MutableStateFlow(SessionUiState())
     val state: StateFlow<SessionUiState> = _state.asStateFlow()
@@ -50,7 +58,7 @@ class SessionViewModel(
     fun onEvent(event: SessionEvent) {
         when (event) {
             is SessionEvent.Start -> start(event.mode)
-            SessionEvent.Pause -> if (isRunning()) _state.update { it.copy(paused = true) }
+            SessionEvent.Pause -> if (isRunning()) { orbPauses++; _state.update { it.copy(paused = true) } }
             SessionEvent.Resume -> _state.update { it.copy(paused = false) }
             SessionEvent.Next -> next()
             SessionEvent.EndAndSave -> finishTest(partial = true)
@@ -62,10 +70,10 @@ class SessionViewModel(
     }
 
     /** Debug captures only: finishes a test with the given readings, as if they had been measured. */
-    fun finishWithReadingsForCapture(mode: SessionMode, readings: Map<Direction, Int>) {
+    fun finishWithReadingsForCapture(mode: SessionMode, readings: Map<Direction, Int>, thenExercise: Boolean = false) {
         measurements.clear()
         readings.forEach { (direction, angle) -> measurements[direction] = Measurement(direction, angle) }
-        _state.value = SessionUiState(stage = SessionStage.TESTING, mode = SessionMode.TEST_ONLY)
+        _state.value = SessionUiState(stage = SessionStage.TESTING, mode = if (thenExercise) SessionMode.FULL else SessionMode.TEST_ONLY)
         viewModelScope.launch {
             history = sessions.history()
             finishTest(partial = false)
@@ -154,6 +162,59 @@ class SessionViewModel(
         if (next != s) _state.value = next
     }
 
+    /** The route of the current orb exercise; the scene draws it. */
+    var orbPath: OrbPath? = null
+        private set
+
+    /** Latest orb frame for the scene; kept out of the UI state to avoid recomposition. */
+    var orbSnapshot: OrbSnapshot? = null
+        private set
+
+    private var orb: OrbExercise? = null
+    private var orbPauses = 0
+
+    private fun beginOrb() {
+        val latest = lastResult ?: insights.latest(history)
+        val (left, right) = insights.orbSplit(latest, autoAdjust())
+        val path = OrbPathGenerator.generate(insights.motionBoundary(history), left, right)
+        orbPath = path
+        orb = OrbExercise(path)
+        orbSnapshot = null
+        orbPauses = 0
+    }
+
+    /** Orb frame: where the head points, and how fast it is turning. */
+    fun onOrbFrame(dtSeconds: Float, gaze: GazePoint, headSpeedDps: Float) {
+        val s = _state.value
+        if (s.stage != SessionStage.ORB || s.paused) return
+        val exercise = orb ?: run { beginOrb(); orb!! }
+        val snap = exercise.update(dtSeconds, gaze, headSpeedDps)
+        orbSnapshot = snap
+        if (snap.finished) {
+            val sessionId = lastResult?.sessionId ?: 0L
+            viewModelScope.launch {
+                runCatching {
+                    sessions.saveExercise(
+                        ExerciseResult(sessionId, ExerciseType.ORB, 90 - snap.remainingSeconds, snap.caught, snap.total, pauseCount = orbPauses)
+                    )
+                }
+            }
+            orb = null
+            _state.update { it.copy(stage = SessionStage.SHOULDER, orbHint = null) }
+            return
+        }
+        val remaining = "%d:%02d".format(snap.remainingSeconds / 60, snap.remainingSeconds % 60)
+        val next =
+            s.copy(
+                orbCaught = snap.caught,
+                orbTotal = snap.total,
+                orbRemaining = remaining,
+                orbTimeProgress = (snap.timeProgress * 160).roundToInt() / 160f,
+                orbHint = if (snap.showSlowHint) "慢一点也没关系" else null,
+            )
+        if (next != s) _state.value = next
+    }
+
     /** Unrounded sweep angle for the scene; kept out of the UI state to avoid recomposition. */
     var sweepAngleDeg: Float = 0f
         private set
@@ -174,7 +235,7 @@ class SessionViewModel(
                 }
                 advance()
             }
-            SessionStage.ORB -> _state.update { it.copy(stage = SessionStage.SHOULDER, paused = false) }
+            SessionStage.ORB -> { orb = null; _state.update { it.copy(stage = SessionStage.SHOULDER, paused = false, orbHint = null) } }
             SessionStage.SHOULDER -> _state.update { it.copy(stage = SessionStage.RESULT, paused = false) }
             else -> Unit
         }
@@ -222,6 +283,8 @@ class SessionViewModel(
         val result = TestResult(0, clock(), mode, all)
         save(result)
         val nextStage = if (mode == SessionMode.FULL && !partial) SessionStage.ORB else SessionStage.RESULT
+        lastResult = result
+        if (nextStage == SessionStage.ORB) beginOrb()
         _state.update { it.copy(stage = nextStage, current = null, paused = false, reticle = ReticleLook.IDLE, dwellProgress = 0f) }
     }
 

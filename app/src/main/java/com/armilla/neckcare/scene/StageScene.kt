@@ -9,7 +9,9 @@ import com.armilla.neckcare.scene.environment.SkyDome
 import com.armilla.neckcare.scene.environment.SkyPanorama
 import com.armilla.neckcare.ui.session.SessionStage
 import com.armilla.neckcare.ui.session.SessionViewModel
+import com.armilla.neckcare.domain.usecase.GazePoint
 import com.armilla.neckcare.ui.stage.LobbyPanels
+import com.armilla.neckcare.ui.stage.OrbPanels
 import com.armilla.neckcare.ui.stage.PanelGroup
 import com.armilla.neckcare.ui.stage.PanelSpec
 import com.armilla.neckcare.ui.stage.ResultPanels
@@ -36,6 +38,7 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
     private var armillary: Armillary? = null
     private var gauge: TestGauge? = null
     private var calibrationPoint: Entity? = null
+    private var orbScene: OrbScene? = null
     private var shownAngles: Map<Direction, Int>? = null
     private var resultAngles: Map<Direction, Int> = emptyMap()
     private var ready = false
@@ -117,7 +120,7 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
                 anchor.addChild(point)
             }
         shownDirection = null
-        (LobbyPanels.fixed + SessionPanels.all + ResultPanels.all).forEach(::place)
+        (LobbyPanels.fixed + SessionPanels.all + ResultPanels.all + listOf(OrbPanels.Status, OrbPanels.Hint)).forEach(::place)
         shownAngles?.let { angles ->
             shownAngles = null
             showLobby(angles)
@@ -132,6 +135,28 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
             spec.boardCenterPx?.let { anchor.board(spec.distanceM, it.first, it.second) }
                 ?: anchor.polar(spec.distanceM, spec.azimuthDeg, spec.elevationDeg)
         place(spec, position)
+    }
+
+    /** Parents a panel under any entity, e.g. the count tag that travels with the orb. */
+    private fun placeUnder(spec: PanelSpec, parent: Entity, local: Vector3, yawDeg: Float = 0f) {
+        val entity = panel(spec) ?: return
+        entity.components[TransformComponent::class.java]?.apply {
+            setPosition(local)
+            setQuaternion(StageAnchor.yaw(yawDeg))
+            val scale = spec.entityScale(density)
+            setScaleVector(Vector3(scale, scale, scale))
+        }
+        if (entity.getParent() !== parent) parent.addChild(entity)
+    }
+
+    private fun startOrb(session: SessionViewModel) {
+        val path = session.orbPath ?: return
+        orbScene?.destroy()
+        val scene = OrbScene(anchor.eyeHeightM, path)
+        anchor.addChild(scene)
+        orbScene = scene
+        placeUnder(OrbPanels.Count, scene.pivot, scene.countTagLocal())
+        placeUnder(OrbPanels.Boundary, anchor, scene.boundaryTagPosition(), scene.boundaryTagYawDeg())
     }
 
     private fun place(spec: PanelSpec, anchorLocal: Vector3) {
@@ -202,6 +227,13 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
                 // Put the calibration point wherever the user is facing now.
                 calibrate(headPosition, headRotation)
             }
+            if (state.stage == SessionStage.ORB && shownStage != SessionStage.ORB) startOrb(session)
+            if (state.stage != SessionStage.ORB && shownStage == SessionStage.ORB) {
+                // Hand the travelling tag back before the orb is torn down.
+                panel(OrbPanels.Count)?.let(anchor::addChild)
+                orbScene?.destroy()
+                orbScene = null
+            }
             shownStage = state.stage
             shownPaused = state.paused
             applyVisibility(state.stage, state.paused)
@@ -243,6 +275,10 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
                 }
                 gauge?.setAngle(session.sweepAngleDeg, angles.lateralDeg)
             }
+            SessionStage.ORB -> {
+                session.onOrbFrame(dt, GazePoint(yawDeg, pitchDeg), speedDps)
+                session.orbSnapshot?.let { orbScene?.update(dt, it) }
+            }
             else -> Unit
         }
     }
@@ -281,7 +317,10 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
         panel(SessionPanels.Steps)?.enabled = testing
         panel(SessionPanels.Reading)?.enabled = testing && !paused
         panel(SessionPanels.Instruction)?.enabled = (testing || calibrating) && !paused
-        panel(SessionPanels.Reticle)?.enabled = (testing || calibrating) && !paused
+        val orb = stage == SessionStage.ORB
+        panel(SessionPanels.Reticle)?.enabled = (testing || calibrating || orb) && !paused
+        OrbPanels.all.forEach { panel(it)?.enabled = orb && !paused }
+        orbScene?.enabled = orb
         panel(SessionPanels.Console)?.enabled = !lobby && stage != SessionStage.RESULT
         panel(SessionPanels.Pause)?.enabled = paused
         if (!testing) panel(SessionPanels.LastTag)?.enabled = false

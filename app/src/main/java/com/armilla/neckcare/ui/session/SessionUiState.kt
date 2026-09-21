@@ -44,6 +44,11 @@ data class SessionUiState(
     val instruction: String = "",
     val instructionDetail: String = "停住 2 秒后自动记录，不用使劲",
     val lastAngleDeg: Int? = null,
+    val orbCaught: Int = 0,
+    val orbTotal: Int = 12,
+    val orbRemaining: String = "1:30",
+    val orbTimeProgress: Float = 0f,
+    val orbHint: String? = null,
     val savedSessionId: Long? = null,
     val saveFailed: Boolean = false,
 )

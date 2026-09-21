@@ -128,3 +128,20 @@ object ResultPanels {
 
     val all = listOf(Main, NextWeek, ArmillaryTag)
 }
+
+/** Panels of 视线接光球, measured off the artboard. */
+object OrbPanels {
+    /** O-10: status bar, top centre, 80 px tall. */
+    val Status = PanelSpec("orb_status", 680, 84, DesignScale.MAIN_M, boardCenterPx = 800f to 102f, group = PanelGroup.FOLLOW)
+
+    /** Gentle hint under the status bar. */
+    val Hint = PanelSpec("orb_hint", 420, 50, DesignScale.MAIN_M, boardCenterPx = 800f to 176f, group = PanelGroup.FOLLOW)
+
+    /** O-09: "已接住 7 共 12 个", left of the orb; parented to the orb pivot by the scene. */
+    val Count = PanelSpec("orb_count", 230, 60, DesignScale.FAR_M)
+
+    /** O-08: caption on the motion boundary. */
+    val Boundary = PanelSpec("orb_boundary", 330, 56, DesignScale.FAR_M)
+
+    val all = listOf(Status, Hint, Count, Boundary)
+}
