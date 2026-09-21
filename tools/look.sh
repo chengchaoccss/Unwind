@@ -8,7 +8,10 @@ SETTLE="${2:-7}"
 DEVICE="${PICO_CLI_DEVICE:-PB3310PGL7200057B}"
 export JAVA_HOME="${JAVA_HOME:-/Users/bytedance/.pico/primer-cli/jdk/jdk-21.0.12.1+1/Contents/Home}"
 export NO_COLOR=1
-./gradlew :app:assembleDebug --console=plain -q 2>&1 | grep -E "^e: |FAILED|error:" && exit 1 || true
+if ! ./gradlew :app:assembleDebug --console=plain -q > /tmp/armilla_build.log 2>&1; then
+  grep -E "^e: |error:|FAILED" /tmp/armilla_build.log | head -20
+  exit 1
+fi
 pico-cli app install app/build/outputs/apk/debug/app-debug.apk -d "$DEVICE" -r | tail -1
 pico-cli app stop com.armilla.neckcare -d "$DEVICE" >/dev/null 2>&1 || true
 pico-cli app launch com.armilla.neckcare --activity .platform.LaunchActivity -d "$DEVICE" >/dev/null

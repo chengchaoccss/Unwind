@@ -16,9 +16,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.armilla.neckcare.scene.StageAnchor
 import com.armilla.neckcare.scene.environment.SkyDome
 import com.armilla.neckcare.scene.environment.SkyPanorama
 import com.armilla.neckcare.ui.theme.ArmillaColors
@@ -26,12 +28,10 @@ import com.armilla.neckcare.ui.theme.ArmillaType
 import com.pico.spatial.core.ecs.Entity
 import com.pico.spatial.core.ecs.ModelComponent
 import com.pico.spatial.core.ecs.TransformComponent
-import com.pico.spatial.core.ecs.resource.MaterialCullingMode
 import com.pico.spatial.core.ecs.resource.MeshResource
 import com.pico.spatial.core.ecs.resource.TextureResource
 import com.pico.spatial.core.ecs.resource.UnlitMaterial
 import com.pico.spatial.core.math.Color4
-import com.pico.spatial.core.math.EulerAngles
 import com.pico.spatial.core.math.Quat
 import com.pico.spatial.core.math.Vector3
 import com.pico.spatial.tracking.hmd.HMDPose
@@ -39,11 +39,14 @@ import com.pico.spatial.tracking.hmd.HMDTrackingData
 import com.pico.spatial.tracking.hmd.HMDTrackingProvider
 import com.pico.spatial.ui.design.Text
 import com.pico.spatial.ui.foundation.content.SpatialView
+import com.pico.spatial.ui.platform.LengthUnit
+import com.pico.spatial.ui.platform.LocalPhysicalLengthConverter
 import java.io.File
 import kotlin.math.asin
 import kotlin.math.atan2
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
 private const val TAG = "ArmillaSpike"
@@ -75,10 +78,17 @@ fun HomeStage() {
     val pitch = Math.toDegrees(asin(f.y.coerceIn(-1f, 1f)).toDouble())
     val roll = -Math.toDegrees(asin(r.y.coerceIn(-1f, 1f)).toDouble())
 
+    val converter = LocalPhysicalLengthConverter.current
+    val density = LocalDensity.current
+    val panelWidthDp = converter.lengthToDp(0.77f, LengthUnit.Meters)
+    val panelHeightDp = converter.lengthToDp(0.49f, LengthUnit.Meters)
+    val panelPx = with(density) { IntSize(panelWidthDp.roundToPx(), panelHeightDp.roundToPx()) }
+    Log.i(TAG, "0.77 m = $panelWidthDp = ${panelPx.width}px, density=${density.density}")
+
     SpatialView(
         modifier = Modifier.fillMaxSize(),
         attachments = {
-            AttachmentPanel("spike", size = IntSize(880, 560)) {
+            AttachmentPanel("spike", size = panelPx) {
                 SpikePanel(
                     yaw = yaw.roundToInt(),
                     pitch = pitch.roundToInt(),
@@ -89,8 +99,11 @@ fun HomeStage() {
             }
         },
     ) { content, attachments ->
-        val root = Entity()
+        val root = StageAnchor()
         content.addEntity(root)
+        val first = hmd.dataFlow.first { it.hmdPose.position.y > 0.2f }
+        root.calibrate(first.hmdPose.position, first.hmdPose.rotation)
+        Log.i(TAG, "anchored at ${first.hmdPose.position}, eye=${root.eyeHeightM}")
 
         val bitmap = withContext(Dispatchers.Default) { SkyPanorama.render() }
         withContext(Dispatchers.IO) {
@@ -104,38 +117,23 @@ fun HomeStage() {
 
         root.addChild(SkyDome(texture))
 
-        // Texture check seen from outside: the panorama on a 2 m x 1 m plane, front-left.
+        // Ruler: 0.77 m wide, just under the panel, to check the panel's physical width.
         Entity().apply {
             components.set(
                 ModelComponent(
-                    MeshResource.createPlane(2f, 1f),
+                    MeshResource.createBox(Vector3(0.77f, 0.01f, 0.01f)),
                     UnlitMaterial.create().apply {
-                        setBaseColorTexture(texture)
-                        setCullingMode(MaterialCullingMode.NONE)
+                        setBaseColor(Color4(0.94f, 0.71f, 0.35f, 1f))
+                        setApplyToneMapping(false)
                     },
                 )
             )
-            components[TransformComponent::class.java]?.apply {
-                setPosition(Vector3(-2.2f, 1.6f, -3f))
-            }
+            components[TransformComponent::class.java]?.setPosition(root.polar(1.39f, 0f, -8f))
             root.addChild(this)
         }
 
-        // Thin ring: outer edge radius and hole radius, 8 mm apart.
-        val ring =
-            Entity().apply {
-                components.set(
-                    ModelComponent(
-                        MeshResource.createTorus(0.474f, 0.466f),
-                        UnlitMaterial.create().apply { setBaseColor(Color4(0.94f, 0.91f, 0.86f, 1f)) },
-                    )
-                )
-                components[TransformComponent::class.java]?.setPosition(Vector3(0f, 1.5f, -2.5f))
-            }
-        root.addChild(ring)
-
         attachments.entity("spike")?.let { panel ->
-            panel.components[TransformComponent::class.java]?.setPosition(Vector3(0f, 1.4f, -1.4f))
+            panel.components[TransformComponent::class.java]?.setPosition(root.polar(1.4f, 0f, -8f))
             root.addChild(panel)
             Log.i(TAG, "panel bounds=${panel.getVisualBounds(null)}")
         }
