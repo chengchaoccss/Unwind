@@ -26,10 +26,12 @@ import com.armilla.neckcare.ui.theme.ArmillaType
 import com.pico.spatial.core.ecs.Entity
 import com.pico.spatial.core.ecs.ModelComponent
 import com.pico.spatial.core.ecs.TransformComponent
+import com.pico.spatial.core.ecs.resource.MaterialCullingMode
 import com.pico.spatial.core.ecs.resource.MeshResource
 import com.pico.spatial.core.ecs.resource.TextureResource
 import com.pico.spatial.core.ecs.resource.UnlitMaterial
 import com.pico.spatial.core.math.Color4
+import com.pico.spatial.core.math.EulerAngles
 import com.pico.spatial.core.math.Quat
 import com.pico.spatial.core.math.Vector3
 import com.pico.spatial.tracking.hmd.HMDPose
@@ -98,13 +100,33 @@ fun HomeStage() {
                 Log.i(TAG, "panorama saved to ${out.absolutePath}")
             }
         }
-        root.addChild(SkyDome(TextureResource.create(bitmap)))
+        val texture = TextureResource.create(bitmap)
 
+        root.addChild(SkyDome(texture))
+
+        // Texture check seen from outside: the panorama on a 2 m x 1 m plane, front-left.
+        Entity().apply {
+            components.set(
+                ModelComponent(
+                    MeshResource.createPlane(2f, 1f),
+                    UnlitMaterial.create().apply {
+                        setBaseColorTexture(texture)
+                        setCullingMode(MaterialCullingMode.NONE)
+                    },
+                )
+            )
+            components[TransformComponent::class.java]?.apply {
+                setPosition(Vector3(-2.2f, 1.6f, -3f))
+            }
+            root.addChild(this)
+        }
+
+        // Thin ring: outer edge radius and hole radius, 8 mm apart.
         val ring =
             Entity().apply {
                 components.set(
                     ModelComponent(
-                        MeshResource.createTorus(0.47f, 0.004f),
+                        MeshResource.createTorus(0.474f, 0.466f),
                         UnlitMaterial.create().apply { setBaseColor(Color4(0.94f, 0.91f, 0.86f, 1f)) },
                     )
                 )

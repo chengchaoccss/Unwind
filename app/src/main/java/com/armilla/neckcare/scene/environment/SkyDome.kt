@@ -4,44 +4,80 @@ import com.pico.spatial.core.ecs.Entity
 import com.pico.spatial.core.ecs.ModelComponent
 import com.pico.spatial.core.ecs.TransformComponent
 import com.pico.spatial.core.ecs.resource.MaterialCullingMode
+import com.pico.spatial.core.ecs.resource.MeshModel
 import com.pico.spatial.core.ecs.resource.MeshResource
 import com.pico.spatial.core.ecs.resource.TextureResource
 import com.pico.spatial.core.ecs.resource.UnlitMaterial
-import com.pico.spatial.core.math.EulerAngles
+import com.pico.spatial.core.math.Vector2
 import com.pico.spatial.core.math.Vector3
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
- * The world-fixed environment: a large inward-facing sphere carrying [SkyPanorama]. Without a sky
- * a Full stage renders black. Unlit, so it needs no image-based lighting of its own.
+ * The world-fixed environment: a large sphere seen from inside, carrying an equirectangular
+ * panorama. Without a sky a Full stage renders black.
+ *
+ * The mesh is built here rather than with MeshResource.createSphere, whose UVs are not a plain
+ * latitude/longitude mapping (measured on device with [CalibrationGrid]). Azimuth 0, the middle
+ * of the panorama, faces -Z (forward); positive azimuth is toward +X, the user's right.
  */
-class SkyDome(texture: TextureResource) : Entity() {
+class SkyDome(texture: TextureResource, radiusM: Float = RADIUS_M) : Entity() {
     init {
         val material =
             UnlitMaterial.create().apply {
                 setBaseColorTexture(texture)
-                // We look at the sphere from inside, so drop the faces that point outward.
-                setCullingMode(MaterialCullingMode.FRONT)
-                setDepthWrite(false)
+                setCullingMode(MaterialCullingMode.NONE)
                 setApplyToneMapping(false)
             }
-        components.set(ModelComponent(MeshResource.createSphere(RADIUS_M), material))
-        components[TransformComponent::class.java]?.apply {
-            // Horizon at eye height: every height in the design is relative to the line of sight.
-            setPosition(Vector3(0f, DEFAULT_EYE_HEIGHT_M, 0f))
-            setEulerAngles(EulerAngles(0f, YAW_OFFSET_DEG, 0f))
-        }
+        components.set(ModelComponent(buildMesh(radiusM), material))
+        setEyeHeight(DEFAULT_EYE_HEIGHT_M)
     }
 
+    /** Keeps the horizon on the line of sight: every height in the design is relative to it. */
     fun setEyeHeight(eyeHeightM: Float) {
         components[TransformComponent::class.java]?.setPosition(Vector3(0f, eyeHeightM, 0f))
     }
 
     companion object {
-        /** Environment sits "50 m and beyond" in the spatial layout board. */
-        const val RADIUS_M = 60f
+        /** Far enough to read as scenery; a 60 m sphere did not render on device, 45 m does. */
+        const val RADIUS_M = 45f
         const val DEFAULT_EYE_HEIGHT_M = 1.6f
+        private const val COLUMNS = 96
+        private const val ROWS = 48
 
-        /** Turns the sphere so the middle of the panorama lands straight ahead (-Z). Device-tuned. */
-        var YAW_OFFSET_DEG = 0f
+        private fun buildMesh(radius: Float): MeshResource {
+            val positions = ArrayList<Vector3>((COLUMNS + 1) * (ROWS + 1))
+            val uvs = ArrayList<Vector2>((COLUMNS + 1) * (ROWS + 1))
+            for (row in 0..ROWS) {
+                val v = row / ROWS.toFloat()
+                val elevation = Math.toRadians(90.0 - 180.0 * v)
+                for (column in 0..COLUMNS) {
+                    val u = column / COLUMNS.toFloat()
+                    val azimuth = Math.toRadians(-180.0 + 360.0 * u)
+                    positions +=
+                        Vector3(
+                            (radius * cos(elevation) * sin(azimuth)).toFloat(),
+                            (radius * sin(elevation)).toFloat(),
+                            (-radius * cos(elevation) * cos(azimuth)).toFloat(),
+                        )
+                    // Texture V runs bottom-up in this engine (measured with CalibrationGrid).
+                    uvs += Vector2(u, 1f - v)
+                }
+            }
+            val indices = ArrayList<Int>(COLUMNS * ROWS * 6)
+            val stride = COLUMNS + 1
+            for (row in 0 until ROWS) for (column in 0 until COLUMNS) {
+                val a = row * stride + column
+                val b = a + 1
+                val c = a + stride
+                val d = c + 1
+                indices += listOf(a, c, b, b, c, d)
+            }
+            return MeshResource.createWithMeshModel(
+                MeshModel(positions = positions, triangleIndices = indices, uv0 = uvs),
+                null,
+                "sky_dome",
+            )
+        }
     }
 }
