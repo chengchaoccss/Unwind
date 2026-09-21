@@ -101,6 +101,8 @@ data class OrbConfig(
     val waitAfterAwaySeconds: Float = 3f,
     val tooFastHeadDps: Float = 60f,
     val tooFastPauseSeconds: Float = 1f,
+    /** PRD §7 pauses the orb after a fast head turn; switched off by the product owner. */
+    val pauseOnFastHead: Boolean = false,
 )
 
 data class OrbSnapshot(
@@ -140,7 +142,7 @@ class OrbExercise(private val path: OrbPath, private val config: OrbConfig = Orb
         val finishedBefore = isFinished()
         var justCaught = false
         if (!finishedBefore) {
-            if (headSpeedDps > config.tooFastHeadDps) {
+            if (config.pauseOnFastHead && headSpeedDps > config.tooFastHeadDps) {
                 pause = config.tooFastPauseSeconds
                 hint = 3f
             }

@@ -146,9 +146,8 @@ class SessionViewModel(
         val instruction =
             when {
                 snap.phase == RecorderPhase.RECORDED || snap.phase == RecorderPhase.RETURNING -> "好了，慢慢回正"
-                snap.phase == RecorderPhase.VOIDED -> "太快了，先回正，再慢慢来一次"
+                snap.phase == RecorderPhase.VOIDED -> "先回正，再来一次"
                 snap.showSkipHint -> "可以先跳过这一项"
-                snap.speedTier == SpeedTier.FAST -> "再慢一点"
                 else -> direction.instruction
             }
         val next =
@@ -164,8 +163,9 @@ class SessionViewModel(
                 cue = if (snap.phase == RecorderPhase.RECORDED && s.reticle != ReticleLook.RECORDED) SessionCue.RECORDED else s.cue,
                 cueSerial = if (snap.phase == RecorderPhase.RECORDED && s.reticle != ReticleLook.RECORDED) s.cueSerial + 1 else s.cueSerial,
                 speedBars = snap.speedBars,
-                speedLabel = snap.speedTier.label,
-                speedIsOk = snap.speedTier == SpeedTier.OK,
+                // The meter only shows how fast the head is moving; it never tells the user off.
+                speedLabel = if (snap.speedTier == SpeedTier.OK) snap.speedTier.label else "",
+                speedIsOk = true,
                 instruction = instruction,
                 steps =
                     s.steps.map {

@@ -50,6 +50,10 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
     private var shoulderLogTimer = 0f
     private var punchScene: PunchScene? = null
     private var trackingLostSeconds = 0f
+    private var punchLogTimer = 0f
+
+    /** Debug captures only. */
+    var demoGloves = false
 
     /** Radius of the shoulder guide rings, from settings. */
     var ringRadiusM = 0.19f
@@ -66,6 +70,12 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
     /** Palm positions in stage space, supplied by the stage every frame; null while untracked. */
     var leftHand: Vector3? = null
     var rightHand: Vector3? = null
+
+    /** Wrist and middle knuckle of each hand, stage space: they give the gloves their aim. */
+    var leftWrist: Vector3? = null
+    var rightWrist: Vector3? = null
+    var leftKnuckle: Vector3? = null
+    var rightKnuckle: Vector3? = null
     private var shownAngles: Map<Direction, Int>? = null
     private var resultAngles: Map<Direction, Int> = emptyMap()
     private var ready = false
@@ -273,7 +283,7 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
             if (state.stage == SessionStage.SHOULDER && shoulderScene == null) {
                 shoulderScene = ShoulderScene(anchor.eyeHeightM, ringRadiusM).also(anchor::addChild)
             }
-            if (state.stage == SessionStage.PUNCH && punchScene == null) punchScene = PunchScene(anchor.eyeHeightM).also(anchor::addChild)
+            if (state.stage == SessionStage.PUNCH && punchScene == null) punchScene = PunchScene(anchor.eyeHeightM).also { it.demoGloves = demoGloves; anchor.addChild(it) }
             if (state.stage != SessionStage.PUNCH && shownStage == SessionStage.PUNCH) {
                 punchScene?.destroy()
                 punchScene = null
@@ -349,7 +359,19 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
                 val l = fist(leftHand)
                 val r = fist(rightHand)
                 session.onPunchFrame(dt, l, r)
-                session.punchSnapshot?.let { punchScene?.update(it, l, r) }
+                punchLogTimer += dt
+                if (punchLogTimer >= 2f) {
+                    punchLogTimer = 0f
+                    android.util.Log.i("ArmillaPunch", "hands L=$l R=$r rawL=$leftHand rawR=$rightHand hits=${session.punchSnapshot?.hits}")
+                }
+                fun aim(wrist: Vector3?, knuckle: Vector3?): com.armilla.neckcare.scene.geometry.Vec3? {
+                    val w = wrist?.let { anchor.convertPositionFrom(it, null) } ?: return null
+                    val k = knuckle?.let { anchor.convertPositionFrom(it, null) } ?: return null
+                    return com.armilla.neckcare.scene.geometry.Vec3(k.x - w.x, k.y - w.y, k.z - w.z)
+                }
+                session.punchSnapshot?.let {
+                    punchScene?.update(dt, it, l, r, aim(leftWrist, leftKnuckle), aim(rightWrist, rightKnuckle))
+                }
             }
             else -> Unit
         }

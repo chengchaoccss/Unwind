@@ -115,6 +115,36 @@ class MeshData {
         return this
     }
 
+    /** Sphere stretched to the radii [rx], [ry], [rz]; building block of the boxing gloves. */
+    fun ellipsoid(center: Vec3, rx: Float, ry: Float, rz: Float, columns: Int = 18, rows: Int = 12): MeshData {
+        val start = positions.size
+        sphere(Vec3.ZERO, 1f, columns, rows)
+        for (i in start until positions.size) {
+            val p = positions[i]
+            positions[i] = Vec3(center.x + p.x * rx, center.y + p.y * ry, center.z + p.z * rz)
+        }
+        return this
+    }
+
+    /** Straight tube whose radius runs from [r0] at [from] to [r1] at [to]: cuffs and comet tails. */
+    fun taper(from: Vec3, to: Vec3, r0: Float, r1: Float, sides: Int = 10): MeshData {
+        val base = positions.size
+        val axis = (to - from).normalized()
+        val n = perpendicular(axis)
+        val b = axis.cross(n)
+        for ((centre, radius) in listOf(from to r0, to to r1)) {
+            for (s in 0 until sides) {
+                val a = 2.0 * PI * s / sides
+                positions += centre + n * (radius * cos(a).toFloat()) + b * (radius * sin(a).toFloat())
+            }
+        }
+        for (s in 0 until sides) {
+            val s1 = (s + 1) % sides
+            indices += listOf(base + s, base + sides + s, base + s1, base + s1, base + sides + s, base + sides + s1)
+        }
+        return this
+    }
+
     /** Flat disc facing [normal]; used for the dais and halo cards. */
     fun disc(center: Vec3, normal: Vec3, radius: Float, segments: Int = 48, innerRadius: Float = 0f): MeshData {
         val n = normal.normalized()

@@ -55,8 +55,16 @@ class DwellRecorderTest {
     }
 
     @Test
-    fun turningFasterThanSixtyDegreesPerSecondVoidsTheReading() {
+    fun aFastTurnIsNotPunishedByDefault() {
         val recorder = DwellRecorder(Direction.RIGHT_ROTATION)
+        val s = recorder.sweep(0f, 70f, speedDps = 120f, holdSeconds = 2.5f)
+        assertEquals(70, s.recordedAngleDeg)
+        assertEquals(0, s.retries)
+    }
+
+    @Test
+    fun turningFasterThanSixtyDegreesPerSecondVoidsTheReadingWhenThatRuleIsOn() {
+        val recorder = DwellRecorder(Direction.RIGHT_ROTATION, RecorderConfig(voidWhenTooFast = true))
         val s = recorder.sweep(0f, 70f, speedDps = 120f, holdSeconds = 2.5f)
         assertNull(s.recordedAngleDeg)
         assertEquals(RecorderPhase.VOIDED, s.phase)
@@ -65,7 +73,7 @@ class DwellRecorderTest {
 
     @Test
     fun aVoidedDirectionCanBeMeasuredAgainAfterReturningToNeutral() {
-        val recorder = DwellRecorder(Direction.RIGHT_ROTATION)
+        val recorder = DwellRecorder(Direction.RIGHT_ROTATION, RecorderConfig(voidWhenTooFast = true))
         recorder.sweep(0f, 70f, speedDps = 120f, holdSeconds = 0.5f)
         recorder.sweep(70f, 0f, speedDps = 25f, holdSeconds = 0.3f)
         val s = recorder.sweep(0f, 68f, speedDps = 20f, holdSeconds = 2.3f)

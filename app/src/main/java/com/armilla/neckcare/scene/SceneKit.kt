@@ -38,7 +38,9 @@ object SceneKit {
                 else -> BlendingMode.OPAQUE
             }
         return UnlitMaterial.create(blending).apply {
-            setBaseColor(color.color4(alpha))
+            // Additive blending ignores alpha on this engine (seen on device: a 10 % glow came out
+            // at full strength), so an additive colour is dimmed instead.
+            setBaseColor(if (additive) Color4(color.r * alpha, color.g * alpha, color.b * alpha, 1f) else color.color4(alpha))
             setApplyToneMapping(false)
             setCullingMode(MaterialCullingMode.NONE)
             if (blending != BlendingMode.OPAQUE) setDepthWrite(false)

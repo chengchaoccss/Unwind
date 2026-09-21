@@ -20,68 +20,69 @@ import kotlin.math.sin
 import kotlin.random.Random
 
 /**
- * Now and then a shooting star crosses the upper sky: a short additive streak, bright at the head,
- * that travels 15 to 30 degrees in about a second and fades in and out. Kept above 22° so it never
- * competes with panels, and rare (every 7 to 18 s) so the sky stays calm.
+ * Shooting stars across the upper sky: a new one every 1 to 3.5 seconds, now and then a small
+ * shower of two to four, up to six in flight. Each is a short additive streak, bright at the head,
+ * that travels 15 to 35 degrees in about a second and fades in and out. They stay above 24° so
+ * they never cross the panels.
  */
 class MeteorShower(private val parent: Entity, private val eyeHeight: () -> Float) {
+    /**
+     * One material per meteor: destroying an entity releases the resources it holds, so a shared
+     * material would already be closed when the next meteor is built. Only the bitmap is kept.
+     */
+    private class Meteor(val entity: Entity, val material: UnlitMaterial, val start: Vec3, val end: Vec3, val duration: Float, val peak: Float, var age: Float)
+
     private val random = Random(System.nanoTime())
     private val streakBitmap = paintStreak()
-
-    /**
-     * One material per meteor. Destroying an entity releases the resources it holds, so a material
-     * shared across meteors is already closed when the next one is built (this crashed the app on
-     * the second meteor). Only the bitmap is kept.
-     */
-    private var material: UnlitMaterial? = null
-    private var streak: Entity? = null
-    private var wait = 5f
-    private var age = 0f
-    private var duration = 1f
-    private var start = Vec3.ZERO
-    private var end = Vec3.ZERO
+    private val flying = ArrayList<Meteor>()
+    private var wait = 1.5f
 
     fun update(dt: Float) {
-        val entity = streak
-        if (entity == null) {
-            wait -= dt
-            if (wait <= 0f) launch()
-            return
+        wait -= dt
+        if (wait <= 0f) {
+            val shower = random.nextFloat() < 0.22f
+            val count = if (shower) 2 + random.nextInt(3) else 1
+            // A shower shares a radiant, so its streaks run roughly parallel.
+            val heading = if (random.nextBoolean()) 1f else -1f
+            val az = -80f + random.nextFloat() * 160f
+            repeat(count) { i -> if (flying.size < MAX_FLYING) launch(az + i * (6f + random.nextFloat() * 10f), heading, delay = i * 0.18f) }
+            wait = 1f + random.nextFloat() * 2.5f
         }
-        age += dt
-        val t = age / duration
-        if (t >= 1f) {
-            entity.destroy()
-            streak = null
-            material = null
-            wait = 7f + random.nextFloat() * 11f
-            return
+        val done = ArrayList<Meteor>()
+        for (m in flying) {
+            m.age += dt
+            val t = m.age / m.duration
+            when {
+                t >= 1f -> done += m
+                t >= 0f -> {
+                    m.entity.components[TransformComponent::class.java]?.setPosition((m.start + (m.end - m.start) * t).toVector3())
+                    val glow = sin(PI.toFloat() * t) * m.peak
+                    m.material.setBaseColor(Color4(glow, glow, glow, 1f))
+                }
+            }
         }
-        entity.components[TransformComponent::class.java]?.setPosition((start + (end - start) * t).toVector3())
-        val glow = sin(PI.toFloat() * t)
-        material?.setBaseColor(Color4(glow, glow, glow, 1f))
+        done.forEach {
+            it.entity.destroy()
+            flying.remove(it)
+        }
     }
 
-    private fun launch() {
-        val az = -75f + random.nextFloat() * 150f
-        val el = 28f + random.nextFloat() * 32f
-        val sweep = (14f + random.nextFloat() * 16f) * (if (random.nextBoolean()) 1f else -1f)
-        val drop = 6f + random.nextFloat() * 9f
-        start = onSky(az, el)
-        end = onSky(az + sweep, el - drop)
-        duration = 0.8f + random.nextFloat() * 0.5f
-        age = 0f
+    private fun launch(azimuthDeg: Float, heading: Float, delay: Float) {
+        val el = 26f + random.nextFloat() * 40f
+        val sweep = (15f + random.nextFloat() * 20f) * heading
+        val drop = 5f + random.nextFloat() * 11f
+        val start = onSky(azimuthDeg, el)
+        val end = onSky(azimuthDeg + sweep, (el - drop).coerceAtLeast(24f))
+        val size = 0.6f + random.nextFloat() * 0.9f
         val travel = (end - start).normalized()
         val toEye = (Vec3(0f, eyeHeight(), 0f) - start).normalized()
         val across = toEye.cross(travel).normalized()
-        val mesh = MeshData().quad(Vec3.ZERO, travel * (LENGTH_M / 2f), across * (WIDTH_M / 2f))
-        val fresh = SceneKit.textured(streakBitmap, additive = true).apply { setBaseColor(Color4(0f, 0f, 0f, 1f)) }
-        material = fresh
-        streak =
-            SceneKit.model(mesh, fresh, "meteor")?.also {
-                it.components[TransformComponent::class.java]?.setPosition(start.toVector3())
-                parent.addChild(it)
-            }
+        val mesh = MeshData().quad(Vec3.ZERO, travel * (LENGTH_M * size / 2f), across * (WIDTH_M * size / 2f))
+        val material = SceneKit.textured(streakBitmap, additive = true).apply { setBaseColor(Color4(0f, 0f, 0f, 1f)) }
+        val entity = SceneKit.model(mesh, material, "meteor") ?: return
+        entity.components[TransformComponent::class.java]?.setPosition(start.toVector3())
+        parent.addChild(entity)
+        flying += Meteor(entity, material, start, end, 0.7f + random.nextFloat() * 0.7f, 0.7f + random.nextFloat() * 0.6f, -delay)
     }
 
     private fun onSky(azimuthDeg: Float, elevationDeg: Float): Vec3 {
@@ -116,7 +117,8 @@ class MeteorShower(private val parent: Entity, private val eyeHeight: () -> Floa
 
     private companion object {
         const val RADIUS_M = 40f
-        const val LENGTH_M = 4.2f
-        const val WIDTH_M = 0.22f
+        const val LENGTH_M = 4.6f
+        const val WIDTH_M = 0.24f
+        const val MAX_FLYING = 6
     }
 }

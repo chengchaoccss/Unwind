@@ -70,8 +70,16 @@ class OrbExerciseTest {
     }
 
     @Test
-    fun aFastHeadTurnPausesTheOrbAndShowsTheGentleHint() {
+    fun aFastHeadTurnIsIgnoredByDefault() {
         val exercise = OrbExercise(OrbPathGenerator.generate(boundary))
+        var snap = exercise.update(dt, GazePoint(0f, 0f), 0f)
+        repeat(36) { snap = exercise.update(dt, snap.position, 200f) }
+        assertFalse(snap.showSlowHint)
+    }
+
+    @Test
+    fun aFastHeadTurnPausesTheOrbAndShowsTheGentleHintWhenThatRuleIsOn() {
+        val exercise = OrbExercise(OrbPathGenerator.generate(boundary), OrbConfig(pauseOnFastHead = true))
         var snap = exercise.update(dt, GazePoint(0f, 0f), 0f)
         repeat(36) { snap = exercise.update(dt, snap.position, 0f) }
         val before = snap.position

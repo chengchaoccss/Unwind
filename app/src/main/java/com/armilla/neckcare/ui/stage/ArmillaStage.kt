@@ -145,8 +145,16 @@ fun ArmillaStage() {
         FrameLoop.onFrame = { dt ->
             val pose = hmd.latestData.hmdPose
             val handData = handTracking.latestData
-            scene.leftHand = handData.left?.joint(HandJoint.Index.PALM)?.position
-            scene.rightHand = handData.right?.joint(HandJoint.Index.PALM)?.position
+            // An untracked hand is reported as a pose at (0, 0, 0), not as null (seen on device),
+            // so a joint exactly at the stage origin means "no hand".
+            fun joint(hand: com.pico.spatial.tracking.hand.HandPose?, index: HandJoint.Index) =
+                hand?.joint(index)?.position?.takeIf { it.x != 0f || it.y != 0f || it.z != 0f }
+            scene.leftHand = joint(handData.left, HandJoint.Index.PALM)
+            scene.rightHand = joint(handData.right, HandJoint.Index.PALM)
+            scene.leftWrist = joint(handData.left, HandJoint.Index.WRIST)
+            scene.rightWrist = joint(handData.right, HandJoint.Index.WRIST)
+            scene.leftKnuckle = joint(handData.left, HandJoint.Index.MIDDLE_PROXIMAL)
+            scene.rightKnuckle = joint(handData.right, HandJoint.Index.MIDDLE_PROXIMAL)
             scene.onFrame(dt, pose.position, pose.rotation, session)
         }
         onDispose {
@@ -344,6 +352,7 @@ fun ArmillaStage() {
         val debuggable = context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
         if (debuggable) {
             val files = context.getExternalFilesDir(null)
+            scene.demoGloves = java.io.File(files, "demo_gloves").exists()
             if (java.io.File(files, "skip_onboarding").exists()) {
                 main.onEvent(MainEvent.HealthAccepted)
                 main.onEvent(MainEvent.PostureChosen(com.armilla.neckcare.data.repository.Posture.SEATED))
@@ -372,7 +381,10 @@ fun ArmillaStage() {
                 ),
                 thenExercise = true,
             )
-            if (java.io.File(context.getExternalFilesDir(null), "autostart_shoulder").exists()) {
+            val presses =
+                if (java.io.File(context.getExternalFilesDir(null), "autostart_shoulder").exists()) 1
+                else java.io.File(context.getExternalFilesDir(null), "autostart_orb").takeIf { it.exists() }?.readText()?.trim()?.toIntOrNull() ?: 0
+            repeat(presses) {
                 kotlinx.coroutines.delay(1500)
                 session.onEvent(SessionEvent.Next)
             }

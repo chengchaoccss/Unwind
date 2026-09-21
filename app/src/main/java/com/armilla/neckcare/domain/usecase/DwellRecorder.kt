@@ -11,6 +11,11 @@ data class RecorderConfig(
     val minValidAngleDeg: Float = 10f,
     val fastSpeedDps: Float = 30f,
     val tooFastSpeedDps: Float = 60f,
+    /**
+     * PRD §11 voids a reading taken after a turn above 60°/s. The product owner switched this off
+     * after trying it: speed is never limited and never commented on. Only implausible angles void.
+     */
+    val voidWhenTooFast: Boolean = false,
     val neutralBandDeg: Float = 5f,
     val smoothingSeconds: Float = 0.1f,
     val skipHintSeconds: Float = 20f,
@@ -112,7 +117,7 @@ class DwellRecorder(
         peakSpeed = maxOf(peakSpeed, smoothedSpeed)
 
         val implausible = toward > direction.plausibleMaxDeg
-        if (smoothedSpeed > config.tooFastSpeedDps || implausible) {
+        if ((config.voidWhenTooFast && smoothedSpeed > config.tooFastSpeedDps) || implausible) {
             // Only void once the user has actually left neutral, so a twitch at rest is ignored.
             if (toward > config.neutralBandDeg) {
                 retries++
