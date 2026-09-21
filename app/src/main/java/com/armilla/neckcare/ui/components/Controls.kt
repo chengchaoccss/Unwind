@@ -267,7 +267,7 @@ private fun ConsoleButton(item: ConsoleItem, paddingPx: Int) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                         val now = down.uptimeMillis
-                        Log.i("ArmillaConsole", "down on ${'$'}{label.value} at ${'$'}{down.position}")
+                        Log.i("ArmillaConsole", "down on " + label.value + " at " + down.position)
                         if (now - lastFired.longValue > 350) {
                             lastFired.longValue = now
                             action.value()

@@ -37,6 +37,8 @@ data class PanelSpec(
     /** When set, the panel centre is this artboard point on a plane at [distanceM] (far layer). */
     val boardCenterPx: Pair<Float, Float>? = null,
     val group: PanelGroup = PanelGroup.WORLD,
+    /** Extra shrink on top of the layer's scale; the consoles read as too big and near when worn. */
+    val sizeScale: Float = 1f,
 ) {
     /**
      * Texture pixels per artboard pixel. AttachmentPanel content beyond about 2048 x 1280 px is
@@ -44,7 +46,7 @@ data class PanelSpec(
      * entity is scaled up by [entityScale] to keep the physical size of PRD §4.
      */
     fun pixelsPerDesignPx(density: Density): Float {
-        val wanted = DesignScale(distanceM).dpPerPx * density.density
+        val wanted = DesignScale(distanceM).dpPerPx * sizeScale * density.density
         return minOf(wanted, MAX_TEXTURE_WIDTH_PX / widthPx, MAX_TEXTURE_HEIGHT_PX / heightPx)
     }
 
@@ -57,7 +59,7 @@ data class PanelSpec(
     fun contentDpPerPx(density: Density): Float = pixelsPerDesignPx(density) / density.density
 
     fun entityScale(density: Density): Float =
-        DesignScale(distanceM).dpPerPx * density.density / pixelsPerDesignPx(density)
+        DesignScale(distanceM).dpPerPx * sizeScale * density.density / pixelsPerDesignPx(density)
 
     private companion object {
         const val MAX_TEXTURE_WIDTH_PX = 2040f
@@ -84,7 +86,7 @@ object LobbyPanels {
     val Trend = PanelSpec("lobby_trend", 440, 640, DesignScale.MAIN_M, azimuthDeg = 44f, elevationDeg = 0f, yawDeg = -26f)
 
     /** H-09: near-field console, 35° below the line of sight, tilted back to face the eyes. */
-    val Console = PanelSpec("console", 680, 90, DesignScale.NEAR_M, elevationDeg = -35f, pitchDeg = -36f)
+    val Console = PanelSpec("console", 680, 90, DesignScale.NEAR_M, elevationDeg = -35f, pitchDeg = -36f, sizeScale = 0.8f)
 
     /** Panels with a fixed place; the six tags are placed by the scene. */
     val fixed by lazy { listOf(Caption, Actions, Today, Trend, Console) }
@@ -111,7 +113,7 @@ object SessionPanels {
     val LastTag = PanelSpec("test_last", 180, 56, DesignScale.FAR_M)
 
     /** T-10: exercise console with 暂停 and 下一项. */
-    val Console = PanelSpec("console_session", 480, 90, DesignScale.NEAR_M, elevationDeg = -35f, pitchDeg = -36f)
+    val Console = PanelSpec("console_session", 760, 90, DesignScale.NEAR_M, elevationDeg = -35f, pitchDeg = -36f, sizeScale = 0.8f)
 
     /** Pause panel, straight ahead on the main layer (not drawn in the design). */
     val Pause = PanelSpec("pause", 480, 470, DesignScale.MAIN_M, boardCenterPx = 800f to 440f, group = PanelGroup.FOLLOW)
@@ -179,7 +181,7 @@ object BreathPanels {
     val Count = PanelSpec("breath_count", 260, 56, DesignScale.FAR_M, boardCenterPx = 800f to 735f)
 
     /** 暂停 and 结束. */
-    val Console = PanelSpec("console_breath", 480, 90, DesignScale.NEAR_M, elevationDeg = -35f, pitchDeg = -36f)
+    val Console = PanelSpec("console_breath", 480, 90, DesignScale.NEAR_M, elevationDeg = -35f, pitchDeg = -36f, sizeScale = 0.8f)
 
     val all = listOf(Status, Cue, Count, Console)
 }

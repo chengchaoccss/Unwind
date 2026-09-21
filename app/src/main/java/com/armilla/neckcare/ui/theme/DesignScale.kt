@@ -36,8 +36,8 @@ class DesignScale(val distanceM: Float, dpPerPxOverride: Float? = null) {
          * drawn in to this share. 3D content keeps true angles: the scale and the orb measure them.
          */
         const val COMFORT = 0.75f
-        const val NEAR_M = 0.8f
-        const val MAIN_M = 1.75f
+        const val NEAR_M = 1.1f
+        const val MAIN_M = 2.3f
         const val FAR_M = 2.5f
     }
 }

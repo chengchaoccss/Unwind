@@ -89,8 +89,15 @@ sealed interface SessionEvent {
 
     data object Resume : SessionEvent
 
-    /** "下一项": skip the current direction, or move on from an exercise. */
+    /** Skip the current direction of the test, or move on from an exercise. */
     data object Next : SessionEvent
+
+    /**
+     * "下一个练习": always leaves the current item of the day's list. In the test that means
+     * keeping what has been measured and going on to the orb, not skipping one direction; worn,
+     * a skipped direction looked as if the button had done nothing.
+     */
+    data object NextExercise : SessionEvent
 
     data object EndAndSave : SessionEvent
 

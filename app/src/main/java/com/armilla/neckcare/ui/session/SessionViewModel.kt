@@ -1,5 +1,6 @@
 package com.armilla.neckcare.ui.session
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.armilla.neckcare.data.repository.SessionRepository
@@ -70,6 +71,7 @@ class SessionViewModel(
             SessionEvent.Pause -> if (isRunning()) { orbPauses++; _state.update { it.copy(paused = true) } }
             SessionEvent.Resume -> _state.update { it.copy(paused = false) }
             SessionEvent.Next -> next()
+            SessionEvent.NextExercise -> if (_state.value.stage == SessionStage.TESTING) leaveTest() else next()
             SessionEvent.EndAndSave -> finishTest(partial = true)
             SessionEvent.QuitWithoutSaving -> reset()
             SessionEvent.Retest -> start(_state.value.mode)
@@ -297,7 +299,7 @@ class SessionViewModel(
                 runCatching { sessions.saveExercise(ExerciseResult(sessionId, ExerciseType.PUNCH, 60, orbsCaught = snap.hits, orbsTotal = snap.launched)) }
             }
             punch = null
-            _state.update { it.copy(stage = SessionStage.RESULT) }
+            showResultOrLobby()
             return
         }
         val next =
@@ -362,6 +364,7 @@ class SessionViewModel(
 
     private fun next() {
         val s = _state.value
+        log("next from ${s.stage} ${s.current ?: ""}")
         when (s.stage) {
             SessionStage.TESTING -> {
                 val direction = s.current ?: return
@@ -374,9 +377,40 @@ class SessionViewModel(
             SessionStage.BREATH -> finishBreathing(((breathSnapshot?.breath ?: 1) - 1).coerceAtLeast(0))
             SessionStage.ORB -> { orb = null; _state.update { it.copy(stage = SessionStage.SHOULDER, paused = false, orbHint = null) } }
             SessionStage.SHOULDER -> { shoulder = null; _state.update { it.copy(stage = SessionStage.PUNCH, paused = false) } }
-            SessionStage.PUNCH -> { punch = null; _state.update { it.copy(stage = SessionStage.RESULT, paused = false) } }
+            SessionStage.PUNCH -> { punch = null; showResultOrLobby() }
             else -> Unit
         }
+    }
+
+    /** Leaves the test early: saves what was measured, then carries on with the day's exercises. */
+    private fun leaveTest() {
+        val mode = _state.value.mode
+        log("leave test, mode=$mode, measured=${measurements.values.count { it.status == MeasurementStatus.VALID }}")
+        if (mode != SessionMode.FULL) {
+            finishTest(partial = true)
+            return
+        }
+        val all = Direction.testOrder.map { measurements[it] ?: Measurement(it, 0, status = MeasurementStatus.SKIPPED) }
+        if (all.any { it.status == MeasurementStatus.VALID }) {
+            val result = TestResult(0, clock(), mode, all)
+            save(result)
+            lastResult = result
+        } else {
+            lastResult = null
+        }
+        recorder = null
+        beginOrb()
+        _state.update { it.copy(stage = SessionStage.ORB, current = null, paused = false, reticle = ReticleLook.IDLE, dwellProgress = 0f) }
+    }
+
+    /** With nothing measured (the test was left at once) there is no result page to show. */
+    private fun showResultOrLobby() {
+        if (lastResult == null) reset() else _state.update { it.copy(stage = SessionStage.RESULT, paused = false) }
+    }
+
+    /** android.util.Log is not there in JVM unit tests. */
+    private fun log(message: String) {
+        runCatching { Log.i(TAG, message) }
     }
 
     private fun advance() {
@@ -452,6 +486,7 @@ class SessionViewModel(
     private fun quantise(progress: Float) = (progress.coerceIn(0f, 1f) * 48).roundToInt() / 48f
 
     private companion object {
+        const val TAG = "ArmillaSession"
         const val CALIBRATION_AIM_DEG = 4f
     }
 }

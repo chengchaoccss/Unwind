@@ -294,9 +294,12 @@ fun ArmillaStage() {
                         if (sessionState.paused)
                             ConsoleItem(ConsoleIcon.PLAY, "继续", selected = true) { session.onEvent(SessionEvent.Resume) }
                         else ConsoleItem(ConsoleIcon.PAUSE, "暂停", selected = true) { session.onEvent(SessionEvent.Pause) },
-                        ConsoleItem(ConsoleIcon.NEXT, "下一项", selected = false) { session.onEvent(SessionEvent.Next) },
-                    ),
-                    itemPaddingPx = 56,
+                    ) +
+                        (if (sessionState.stage == SessionStage.TESTING)
+                            listOf(ConsoleItem(ConsoleIcon.NEXT, "跳过这个方向", selected = false) { session.onEvent(SessionEvent.Next) })
+                        else emptyList()) +
+                        ConsoleItem(ConsoleIcon.NEXT, "下一个练习", selected = false) { session.onEvent(SessionEvent.NextExercise) },
+                    itemPaddingPx = 30,
                 )
             }
             // 视线接光球

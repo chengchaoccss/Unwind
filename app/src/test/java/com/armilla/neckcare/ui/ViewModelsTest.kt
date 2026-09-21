@@ -161,6 +161,45 @@ class ViewModelsTest {
     }
 
     @Test
+    fun nextExerciseLeavesTheTestForTheOrbAndEndsInTheLobbyWhenNothingWasMeasured() = runTest {
+        val sessions = InMemorySessionRepository()
+        val vm = SessionViewModel(sessions)
+        vm.onEvent(SessionEvent.Start(SessionMode.FULL))
+        repeat((2.2f / dt).toInt()) { vm.onCalibrationFrame(dt, 1f, 0f) }
+        assertEquals(SessionStage.TESTING, vm.state.value.stage)
+
+        vm.onEvent(SessionEvent.NextExercise)
+        advanceUntilIdle()
+        assertEquals(SessionStage.ORB, vm.state.value.stage)
+        assertTrue(sessions.history().isEmpty())
+        vm.onEvent(SessionEvent.NextExercise)
+        assertEquals(SessionStage.SHOULDER, vm.state.value.stage)
+        vm.onEvent(SessionEvent.NextExercise)
+        assertEquals(SessionStage.PUNCH, vm.state.value.stage)
+        // Nothing was measured, so there is no result page to show.
+        vm.onEvent(SessionEvent.NextExercise)
+        assertEquals(SessionStage.LOBBY, vm.state.value.stage)
+    }
+
+    @Test
+    fun nextExerciseKeepsWhatTheTestHadMeasured() = runTest {
+        val sessions = InMemorySessionRepository()
+        val vm = SessionViewModel(sessions)
+        vm.onEvent(SessionEvent.Start(SessionMode.FULL))
+        repeat((2.2f / dt).toInt()) { vm.onCalibrationFrame(dt, 1f, 0f) }
+        var a = 0f
+        while (a > -60f) { a -= 20f * dt; vm.onTestFrame(dt, HeadAngles(a, 0f, 0f)) }
+        vm.hold(3f, HeadAngles(-60f, 0f, 0f))
+        while (a < 0f) { a += 25f * dt; vm.onTestFrame(dt, HeadAngles(a, 0f, 0f)) }
+        vm.hold(0.2f, HeadAngles.ZERO)
+
+        vm.onEvent(SessionEvent.NextExercise)
+        advanceUntilIdle()
+        assertEquals(SessionStage.ORB, vm.state.value.stage)
+        assertEquals(1, sessions.history().single().measuredCount)
+    }
+
+    @Test
     fun aFailedSaveIsReportedAndCanBeRetried() = runTest {
         val sessions = InMemorySessionRepository().apply { failNextSave = true }
         val vm = SessionViewModel(sessions)
