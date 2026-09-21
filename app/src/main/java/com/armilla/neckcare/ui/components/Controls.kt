@@ -195,7 +195,7 @@ fun DifferenceTag(text: String, modifier: Modifier = Modifier) {
 
 /** 6 px track, paper white 16 %, amber fill. */
 @Composable
-fun ArmillaProgressBar(progress: Float, modifier: Modifier = Modifier, widthPx: Int = 320) {
+fun ArmillaProgressBar(progress: Float, modifier: Modifier = Modifier, widthPx: Int = 320, fill: Color = ArmillaColors.Amber) {
     Box(
         modifier
             .width(widthPx.dpx)
@@ -207,7 +207,7 @@ fun ArmillaProgressBar(progress: Float, modifier: Modifier = Modifier, widthPx: 
             Modifier.width((widthPx * progress.coerceIn(0f, 1f)).dpx)
                 .height(6.dpx)
                 .clip(CircleShape)
-                .background(ArmillaColors.Amber)
+                .background(fill)
         )
     }
 }
@@ -220,6 +220,7 @@ enum class ConsoleIcon {
     PAUSE,
     NEXT,
     PLAY,
+    STOP,
 }
 
 data class ConsoleItem(val icon: ConsoleIcon, val label: String, val selected: Boolean, val onClick: () -> Unit)
@@ -308,6 +309,9 @@ fun LineIcon(icon: ConsoleIcon, tint: Color, modifier: Modifier = Modifier) {
             ConsoleIcon.NEXT -> {
                 path { moveTo(7f * u, 6f * u); lineTo(18f * u, 14f * u); lineTo(7f * u, 22f * u) }
                 line(21f, 6f, 21f, 22f)
+            }
+            ConsoleIcon.STOP -> path {
+                moveTo(8f * u, 8f * u); lineTo(20f * u, 8f * u); lineTo(20f * u, 20f * u); lineTo(8f * u, 20f * u); close()
             }
             ConsoleIcon.PLAY ->
                 path { moveTo(9f * u, 6f * u); lineTo(21f * u, 14f * u); lineTo(9f * u, 22f * u); close() }

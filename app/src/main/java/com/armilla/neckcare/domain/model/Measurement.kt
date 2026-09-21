@@ -96,6 +96,9 @@ enum class ExerciseType(val key: String) {
 
     /** Stores hits and launched targets in the caught / total columns. */
     PUNCH("punch"),
+
+    /** 三环呼吸; breaths finished go in the caught / total columns. */
+    BREATH("breath"),
 }
 
 /** Outcome of one guided exercise (PRD §12 ExerciseResult). */

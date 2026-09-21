@@ -164,6 +164,22 @@ object PunchPanels {
     val all = listOf(Status, Count)
 }
 
+/** Panels of 三环呼吸, measured off the "三环呼吸，山水中" board. */
+object BreathPanels {
+    val Status = PanelSpec("breath_status", 660, 84, DesignScale.MAIN_M, boardCenterPx = 800f to 102f)
+
+    /** 吸气 / 呼气 in 宋体 50 px under the sphere. */
+    val Cue = PanelSpec("breath_cue", 600, 76, DesignScale.FAR_M, boardCenterPx = 800f to 667f)
+
+    /** "第 3 次，共 12 次". */
+    val Count = PanelSpec("breath_count", 260, 56, DesignScale.FAR_M, boardCenterPx = 800f to 735f)
+
+    /** 暂停 and 结束. */
+    val Console = PanelSpec("console_breath", 480, 90, DesignScale.NEAR_M, elevationDeg = -35f, pitchDeg = -36f)
+
+    val all = listOf(Status, Cue, Count, Console)
+}
+
 /** The one full page in front of the user: onboarding, 记录, 课程, 设置. Not drawn in the design. */
 object PagePanels {
     val Page = PanelSpec("page", 780, 712, DesignScale.MAIN_M, boardCenterPx = 800f to 410f)

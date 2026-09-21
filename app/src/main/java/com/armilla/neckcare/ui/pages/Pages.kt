@@ -121,10 +121,19 @@ fun ReminderSetupPage(times: List<String>, onChoose: (Boolean) -> Unit) {
     }
 }
 
-/** MVP placeholder (PRD §10): one line. */
+/** 课程: 三环呼吸 is the first course; the rest of the catalogue is still to come (PRD §10). */
 @Composable
-fun CoursesPage() {
-    PageFrame("课程") { Body("课程还在准备中", ArmillaColors.Mist) }
+fun CoursesPage(onStartBreathing: () -> Unit) {
+    PageFrame("课程") {
+        Text("三环呼吸", color = ArmillaColors.Paper, fontFamily = ArmillaType.Title, fontWeight = FontWeight.SemiBold, fontSize = 32.spx)
+        Body("跟着光环呼吸。吸气 4 秒，光环向两侧展开成一个球；呼气 6 秒，收拢回一个环。共 12 次，2 分钟。")
+        Body("坐稳，肩膀放松，用鼻子吸气。环境会暗下来一些。", ArmillaColors.Mist, 20)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            PrimaryButton("开始", onStartBreathing, heightPx = 68, fontPx = 25, horizontalPaddingPx = 56)
+        }
+        ArmillaDivider()
+        Body("更多课程还在准备中", ArmillaColors.Mist, 20)
+    }
 }
 
 @Composable

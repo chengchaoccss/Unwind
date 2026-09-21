@@ -11,6 +11,9 @@ enum class SessionStage {
     SHOULDER,
     PUNCH,
     RESULT,
+
+    /** 三环呼吸, a course of its own outside the test-and-exercise session. */
+    BREATH,
 }
 
 enum class StepStatus {
@@ -58,6 +61,13 @@ data class SessionUiState(
     val punchCombo: Int = 0,
     val punchRemaining: String = "1:00",
     val punchProgress: Float = 0f,
+    val breathCue: String = "吸气",
+    val breathInhaleAlpha: Float = 0f,
+    val breathExhaleAlpha: Float = 0f,
+    val breathCount: Int = 1,
+    val breathTotal: Int = 12,
+    val breathRemaining: String = "2:00",
+    val breathProgress: Float = 0f,
     /** Cue to play once; the stage clears it after playing. */
     val cue: SessionCue? = null,
     val cueSerial: Int = 0,
@@ -91,4 +101,6 @@ sealed interface SessionEvent {
     data object Done : SessionEvent
 
     data object RetrySave : SessionEvent
+
+    data object StartBreathing : SessionEvent
 }

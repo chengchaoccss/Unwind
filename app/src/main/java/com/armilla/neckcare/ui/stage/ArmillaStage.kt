@@ -66,6 +66,7 @@ import com.pico.spatial.tracking.hand.HandTrackingProvider
 import com.armilla.neckcare.ui.session.SessionStage
 import com.armilla.neckcare.ui.session.SessionViewModel
 import com.armilla.neckcare.ui.session.components.BigReading
+import com.armilla.neckcare.ui.session.components.BreathCue
 import com.armilla.neckcare.ui.session.components.ExerciseStatusBar
 import com.armilla.neckcare.ui.session.components.GentleHint
 import com.armilla.neckcare.ui.session.components.GazeReticle
@@ -264,7 +265,11 @@ fun ArmillaStage() {
                     mainState.confirmingDelete ->
                         DeleteConfirmPage({ main.onEvent(MainEvent.CancelDelete) }, { main.onEvent(MainEvent.ConfirmDelete) })
                     mainState.page == MainPage.RECORDS -> RecordsPage(recordsState, records::onEvent)
-                    mainState.page == MainPage.COURSES -> CoursesPage()
+                    mainState.page == MainPage.COURSES ->
+                        CoursesPage {
+                            main.onEvent(MainEvent.Navigate(MainPage.LOBBY))
+                            session.onEvent(SessionEvent.StartBreathing)
+                        }
                     mainState.page == MainPage.SETTINGS -> SettingsPage(settings, mainState.message, main::onEvent)
                 }
             }
@@ -313,6 +318,26 @@ fun ArmillaStage() {
                 ReadingTag(
                     "已击中", "${sessionState.punchHits}", valueSizePx = 34,
                     trailing = if (sessionState.punchCombo >= 3) "连击 ${sessionState.punchCombo}" else null,
+                )
+            }
+
+            // 三环呼吸
+            panel(BreathPanels.Status) {
+                ExerciseStatusBar("三环呼吸", sessionState.breathProgress, sessionState.breathRemaining, fill = ArmillaColors.Jade)
+            }
+            panel(BreathPanels.Cue) { BreathCue(sessionState.breathInhaleAlpha, sessionState.breathExhaleAlpha) }
+            panel(BreathPanels.Count) {
+                ReadingTag("第", "${sessionState.breathCount}", valueSizePx = 30, trailing = "次，共 ${sessionState.breathTotal} 次")
+            }
+            panel(BreathPanels.Console) {
+                ConsoleBar(
+                    listOf(
+                        if (sessionState.paused)
+                            ConsoleItem(ConsoleIcon.PLAY, "继续", selected = true) { session.onEvent(SessionEvent.Resume) }
+                        else ConsoleItem(ConsoleIcon.PAUSE, "暂停", selected = true) { session.onEvent(SessionEvent.Pause) },
+                        ConsoleItem(ConsoleIcon.STOP, "结束", selected = false) { session.onEvent(SessionEvent.Next) },
+                    ),
+                    itemPaddingPx = 56,
                 )
             }
 
@@ -368,6 +393,9 @@ fun ArmillaStage() {
                 runCatching { MainPage.valueOf(name.uppercase()) }.getOrNull()?.let { main.onEvent(MainEvent.Navigate(it)) }
             }
         }
+        // Entities created in the first frames after the stage comes up are not rendered (seen on
+        // device), so unattended captures wait like a person would before starting anything.
+        if (debuggable) kotlinx.coroutines.delay(3000)
         if (debuggable && java.io.File(context.getExternalFilesDir(null), "autostart_result").exists()) {
             session.finishWithReadingsForCapture(
                 SessionMode.FULL,
@@ -394,6 +422,8 @@ fun ArmillaStage() {
                 kotlinx.coroutines.delay(1500)
                 session.onEvent(SessionEvent.Next)
             }
+        } else if (debuggable && java.io.File(context.getExternalFilesDir(null), "autostart_breath").exists()) {
+            session.onEvent(SessionEvent.StartBreathing)
         } else if (debuggable && java.io.File(context.getExternalFilesDir(null), "autostart_test").exists()) {
             session.calibrationAimDeg = 45f
             session.onEvent(SessionEvent.Start(SessionMode.TEST_ONLY))

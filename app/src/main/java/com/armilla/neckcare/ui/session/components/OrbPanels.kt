@@ -21,7 +21,13 @@ import com.pico.spatial.ui.design.Text
 
 /** O-10: title in 宋体 26 px, 320 × 6 progress bar, "还剩" 20 px + time in Instrument Serif 32 px. */
 @Composable
-fun ExerciseStatusBar(title: String, progress: Float, remaining: String, modifier: Modifier = Modifier) {
+fun ExerciseStatusBar(
+    title: String,
+    progress: Float,
+    remaining: String,
+    modifier: Modifier = Modifier,
+    fill: androidx.compose.ui.graphics.Color = ArmillaColors.Amber,
+) {
     ArmillaPanel(modifier = modifier, cornerRadiusPx = 999) {
         Row(
             modifier = Modifier.padding(horizontal = 36.dpx, vertical = 18.dpx),
@@ -29,7 +35,7 @@ fun ExerciseStatusBar(title: String, progress: Float, remaining: String, modifie
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(title, color = ArmillaColors.Paper, fontFamily = ArmillaType.Title, fontWeight = FontWeight.SemiBold, fontSize = 26.spx, maxLines = 1, softWrap = false)
-            ArmillaProgressBar(progress, widthPx = 320)
+            ArmillaProgressBar(progress, widthPx = 320, fill = fill)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dpx), verticalAlignment = Alignment.Bottom) {
                 Text("还剩", color = ArmillaColors.Mist, fontFamily = ArmillaType.Body, fontSize = 20.spx)
                 Text(remaining, color = ArmillaColors.Paper, fontFamily = ArmillaType.Reading, fontSize = 32.spx, maxLines = 1, softWrap = false)

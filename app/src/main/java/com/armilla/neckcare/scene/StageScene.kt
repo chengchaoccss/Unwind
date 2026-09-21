@@ -13,6 +13,7 @@ import com.armilla.neckcare.scene.environment.StarClusters
 import com.armilla.neckcare.ui.session.SessionStage
 import com.armilla.neckcare.ui.session.SessionViewModel
 import com.armilla.neckcare.domain.usecase.GazePoint
+import com.armilla.neckcare.ui.stage.BreathPanels
 import com.armilla.neckcare.ui.stage.LobbyPanels
 import com.armilla.neckcare.ui.stage.OrbPanels
 import com.armilla.neckcare.ui.stage.PanelGroup
@@ -51,6 +52,8 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
     private var shoulderScene: ShoulderScene? = null
     private var shoulderLogTimer = 0f
     private var punchScene: PunchScene? = null
+    private var breathScene: BreathScene? = null
+    private var skyLevel = 1f
     private var trackingLostSeconds = 0f
     private var punchLogTimer = 0f
 
@@ -165,7 +168,7 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
             }
         shownDirection = null
         // Panels go back to the centred layout; layoutForAxis moves them again when needed.
-        (LobbyPanels.fixed + SessionPanels.all + ResultPanels.all + listOf(OrbPanels.Status, OrbPanels.Hint) + ShoulderPanels.all + PunchPanels.all + PagePanels.Page).forEach(::place)
+        (LobbyPanels.fixed + SessionPanels.all + ResultPanels.all + listOf(OrbPanels.Status, OrbPanels.Hint) + ShoulderPanels.all + PunchPanels.all + BreathPanels.all + PagePanels.Page).forEach(::place)
         shownAngles?.let { angles ->
             shownAngles = null
             showLobby(angles)
@@ -290,6 +293,17 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
             if (state.stage == SessionStage.SHOULDER && shoulderScene == null) {
                 shoulderScene = ShoulderScene(anchor.eyeHeightM, ringRadiusM).also(anchor::addChild)
             }
+            if (state.stage == SessionStage.BREATH && breathScene == null) {
+                // Sphere centre on the board: (800, 366), 2.5 m ahead.
+                // Debug captures only: off to the side, clear of whatever the resting headset faces.
+                BreathScene.DEBUG_MARKER = false
+                val centre = if (demoGloves) anchor.polar(2.5f, 24f, 20f) else anchor.board(2.5f, 800f, 366f)
+                breathScene = BreathScene(centre, floorY = 0f).also(anchor::addChild)
+            }
+            if (state.stage != SessionStage.BREATH && shownStage == SessionStage.BREATH) {
+                breathScene?.destroy()
+                breathScene = null
+            }
             if (state.stage == SessionStage.PUNCH && punchScene == null) punchScene = PunchScene(anchor.eyeHeightM).also { it.demoGloves = demoGloves; anchor.addChild(it) }
             if (state.stage != SessionStage.PUNCH && shownStage == SessionStage.PUNCH) {
                 punchScene?.destroy()
@@ -310,6 +324,17 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
         val pitchDeg = Math.toDegrees(asin(forward.y.coerceIn(-1f, 1f)).toDouble()).toFloat()
         val speedDps = lastForward?.let { angleBetween(it, forward) / dt.coerceAtLeast(1e-4f) } ?: 0f
         lastForward = forward
+        // The sky eases back to full brightness whenever the breathing course is not running.
+        val skyTarget = if (state.stage == SessionStage.BREATH) session.breathSnapshot?.environment ?: 1f else 1f
+        if (skyLevel != skyTarget) {
+            skyLevel += (skyTarget - skyLevel).coerceIn(-dt / 2f, dt / 2f)
+            sky?.setBrightness(skyLevel)
+        }
+        if (state.stage == SessionStage.BREATH) {
+            session.onBreathFrame(dt)
+            session.breathSnapshot?.let { breathScene?.update(dt, it, state.paused) }
+            return
+        }
         if (state.stage == SessionStage.LOBBY || state.stage == SessionStage.RESULT) return
 
         reticleGroup.components[TransformComponent::class.java]?.setQuaternion(gaze(yawDeg, pitchDeg))
@@ -458,8 +483,11 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
         val punching = stage == SessionStage.PUNCH
         PunchPanels.all.forEach { panel(it)?.enabled = punching && !paused }
         punchScene?.enabled = punching
-        panel(SessionPanels.Console)?.enabled = !lobby && stage != SessionStage.RESULT
-        panel(SessionPanels.Pause)?.enabled = paused
+        val breathing = stage == SessionStage.BREATH
+        BreathPanels.all.forEach { panel(it)?.enabled = breathing }
+        breathScene?.enabled = breathing
+        panel(SessionPanels.Console)?.enabled = !lobby && !breathing && stage != SessionStage.RESULT
+        panel(SessionPanels.Pause)?.enabled = paused && !breathing
         if (!testing) panel(SessionPanels.LastTag)?.enabled = false
     }
 

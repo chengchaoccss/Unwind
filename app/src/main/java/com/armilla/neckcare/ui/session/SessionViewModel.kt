@@ -10,6 +10,8 @@ import com.armilla.neckcare.domain.model.Measurement
 import com.armilla.neckcare.domain.model.MeasurementStatus
 import com.armilla.neckcare.domain.model.SessionMode
 import com.armilla.neckcare.domain.model.TestResult
+import com.armilla.neckcare.domain.usecase.BreathSnapshot
+import com.armilla.neckcare.domain.usecase.BreathingExercise
 import com.armilla.neckcare.domain.usecase.DwellRecorder
 import com.armilla.neckcare.domain.usecase.GazePoint
 import com.armilla.neckcare.domain.usecase.HandSample
@@ -73,6 +75,11 @@ class SessionViewModel(
             SessionEvent.Retest -> start(_state.value.mode)
             SessionEvent.Done -> reset()
             SessionEvent.RetrySave -> pending?.let(::save)
+            SessionEvent.StartBreathing -> {
+                breathing = BreathingExercise()
+                breathSnapshot = null
+                _state.value = SessionUiState(stage = SessionStage.BREATH)
+            }
         }
     }
 
@@ -232,6 +239,45 @@ class SessionViewModel(
         if (next != s) _state.value = next
     }
 
+    /** Latest breathing frame for the scene. */
+    var breathSnapshot: BreathSnapshot? = null
+        private set
+
+    private var breathing: BreathingExercise? = null
+
+    /** Breathing frame. Ends back in the lobby: there is nothing to score. */
+    fun onBreathFrame(dtSeconds: Float) {
+        val s = _state.value
+        if (s.stage != SessionStage.BREATH || s.paused) return
+        val exercise = breathing ?: return
+        val snap = exercise.update(dtSeconds)
+        breathSnapshot = snap
+        if (snap.finished) {
+            finishBreathing(snap.totalBreaths)
+            return
+        }
+        fun step(v: Float) = (v * 20).roundToInt() / 20f
+        val next =
+            s.copy(
+                breathInhaleAlpha = step(snap.inhaleCue),
+                breathExhaleAlpha = step(snap.exhaleCue),
+                breathCount = snap.breath,
+                breathTotal = snap.totalBreaths,
+                breathRemaining = "%d:%02d".format(snap.remainingSeconds / 60, snap.remainingSeconds % 60),
+                breathProgress = (snap.progress * 200).roundToInt() / 200f,
+            )
+        if (next != s) _state.value = next
+    }
+
+    private fun finishBreathing(breathsDone: Int) {
+        val total = breathSnapshot?.totalBreaths ?: 12
+        viewModelScope.launch {
+            runCatching { sessions.saveExercise(ExerciseResult(0L, ExerciseType.BREATH, breathsDone * 10, orbsCaught = breathsDone, orbsTotal = total)) }
+        }
+        breathing = null
+        reset()
+    }
+
     /** Latest punch frame for the scene. */
     var punchSnapshot: PunchSnapshot? = null
         private set
@@ -325,6 +371,7 @@ class SessionViewModel(
                 }
                 advance()
             }
+            SessionStage.BREATH -> finishBreathing(((breathSnapshot?.breath ?: 1) - 1).coerceAtLeast(0))
             SessionStage.ORB -> { orb = null; _state.update { it.copy(stage = SessionStage.SHOULDER, paused = false, orbHint = null) } }
             SessionStage.SHOULDER -> { shoulder = null; _state.update { it.copy(stage = SessionStage.PUNCH, paused = false) } }
             SessionStage.PUNCH -> { punch = null; _state.update { it.copy(stage = SessionStage.RESULT, paused = false) } }

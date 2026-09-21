@@ -22,8 +22,10 @@ import kotlin.math.sin
  * of the panorama, faces -Z (forward); positive azimuth is toward +X, the user's right.
  */
 class SkyDome(texture: TextureResource, radiusM: Float = RADIUS_M) : Entity() {
+    private val material: UnlitMaterial
+
     init {
-        val material =
+        material =
             UnlitMaterial.create().apply {
                 setBaseColorTexture(texture)
                 setCullingMode(MaterialCullingMode.NONE)
@@ -31,6 +33,12 @@ class SkyDome(texture: TextureResource, radiusM: Float = RADIUS_M) : Entity() {
             }
         components.set(ModelComponent(buildMesh(radiusM), material))
         setEyeHeight(DEFAULT_EYE_HEIGHT_M)
+    }
+
+    /** 1 is the design's sky; 三环呼吸 dims it to a half so the rings carry the scene. */
+    fun setBrightness(level: Float) {
+        val v = level.coerceIn(0f, 1f)
+        material.setBaseColor(com.pico.spatial.core.math.Color4(v, v, v, 1f))
     }
 
     /** Keeps the horizon on the line of sight: every height in the design is relative to it. */
