@@ -145,3 +145,11 @@ object OrbPanels {
 
     val all = listOf(Status, Hint, Count, Boundary)
 }
+
+/** Panels of 肩部环绕, measured off the artboard. */
+object ShoulderPanels {
+    /** S-06: centre panel, 400 px wide, straight ahead on the main layer. */
+    val Centre = PanelSpec("shoulder_centre", 400, 500, DesignScale.MAIN_M, boardCenterPx = 800f to 460f)
+
+    val all = listOf(Centre)
+}

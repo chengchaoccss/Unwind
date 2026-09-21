@@ -12,6 +12,7 @@ import com.armilla.neckcare.domain.model.SessionMode
 import com.armilla.neckcare.domain.model.TestResult
 import com.armilla.neckcare.domain.usecase.DwellRecorder
 import com.armilla.neckcare.domain.usecase.GazePoint
+import com.armilla.neckcare.domain.usecase.HandSample
 import com.armilla.neckcare.domain.usecase.OrbExercise
 import com.armilla.neckcare.domain.usecase.OrbPath
 import com.armilla.neckcare.domain.usecase.OrbPathGenerator
@@ -20,6 +21,9 @@ import com.armilla.neckcare.domain.usecase.HeadAngles
 import com.armilla.neckcare.domain.usecase.MobilityInsights
 import com.armilla.neckcare.domain.usecase.RecorderConfig
 import com.armilla.neckcare.domain.usecase.RecorderPhase
+import com.armilla.neckcare.domain.usecase.ShoulderExercise
+import com.armilla.neckcare.domain.usecase.ShoulderPhase
+import com.armilla.neckcare.domain.usecase.ShoulderSnapshot
 import com.armilla.neckcare.domain.usecase.SpeedTier
 import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -148,6 +152,8 @@ class SessionViewModel(
                         snap.dwellProgress > 0f -> ReticleLook.DWELLING
                         else -> ReticleLook.IDLE
                     },
+                cue = if (snap.phase == RecorderPhase.RECORDED && s.reticle != ReticleLook.RECORDED) SessionCue.RECORDED else s.cue,
+                cueSerial = if (snap.phase == RecorderPhase.RECORDED && s.reticle != ReticleLook.RECORDED) s.cueSerial + 1 else s.cueSerial,
                 speedBars = snap.speedBars,
                 speedLabel = snap.speedTier.label,
                 speedIsOk = snap.speedTier == SpeedTier.OK,
@@ -211,6 +217,47 @@ class SessionViewModel(
                 orbRemaining = remaining,
                 orbTimeProgress = (snap.timeProgress * 160).roundToInt() / 160f,
                 orbHint = if (snap.showSlowHint) "慢一点也没关系" else null,
+                cue = if (snap.justCaught) SessionCue.ORB_CAUGHT else s.cue,
+                cueSerial = if (snap.justCaught) s.cueSerial + 1 else s.cueSerial,
+            )
+        if (next != s) _state.value = next
+    }
+
+    /** Latest shoulder frame for the scene. */
+    var shoulderSnapshot: ShoulderSnapshot? = null
+        private set
+
+    private var shoulder: ShoulderExercise? = null
+
+    /** Shoulder frame: each hand's place on its ring, or null while the hand is not tracked. */
+    fun onShoulderFrame(dtSeconds: Float, left: HandSample?, right: HandSample?) {
+        val s = _state.value
+        if (s.stage != SessionStage.SHOULDER || s.paused) return
+        val exercise = shoulder ?: ShoulderExercise().also { shoulder = it }
+        val snap = exercise.update(dtSeconds, left, right)
+        shoulderSnapshot = snap
+        if (snap.finished) {
+            val sessionId = lastResult?.sessionId ?: 0L
+            viewModelScope.launch {
+                runCatching {
+                    sessions.saveExercise(
+                        ExerciseResult(sessionId, ExerciseType.SHOULDER, 90 - snap.remainingSeconds, lapsBack = snap.lapsBack, lapsForward = snap.lapsForward)
+                    )
+                }
+            }
+            shoulder = null
+            _state.update { it.copy(stage = SessionStage.RESULT) }
+            return
+        }
+        val counting = snap.phase == ShoulderPhase.BACKWARD || snap.phase == ShoulderPhase.FORWARD
+        val next =
+            s.copy(
+                shoulderTitle = snap.phase.title,
+                shoulderLaps = snap.laps,
+                shoulderCounting = counting,
+                shoulderHint = snap.hint ?: "跟着前面的小光点，一圈大约 4 秒",
+                cue = if (snap.lapJustCounted) SessionCue.LAP else s.cue,
+                cueSerial = if (snap.lapJustCounted) s.cueSerial + 1 else s.cueSerial,
             )
         if (next != s) _state.value = next
     }
@@ -236,7 +283,7 @@ class SessionViewModel(
                 advance()
             }
             SessionStage.ORB -> { orb = null; _state.update { it.copy(stage = SessionStage.SHOULDER, paused = false, orbHint = null) } }
-            SessionStage.SHOULDER -> _state.update { it.copy(stage = SessionStage.RESULT, paused = false) }
+            SessionStage.SHOULDER -> { shoulder = null; _state.update { it.copy(stage = SessionStage.RESULT, paused = false) } }
             else -> Unit
         }
     }

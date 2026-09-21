@@ -16,6 +16,7 @@ import com.armilla.neckcare.ui.stage.PanelGroup
 import com.armilla.neckcare.ui.stage.PanelSpec
 import com.armilla.neckcare.ui.stage.ResultPanels
 import com.armilla.neckcare.ui.stage.SessionPanels
+import com.armilla.neckcare.ui.stage.ShoulderPanels
 import com.pico.spatial.core.ecs.Entity
 import com.pico.spatial.core.ecs.TransformComponent
 import com.pico.spatial.core.ecs.resource.TextureResource
@@ -39,6 +40,11 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
     private var gauge: TestGauge? = null
     private var calibrationPoint: Entity? = null
     private var orbScene: OrbScene? = null
+    private var shoulderScene: ShoulderScene? = null
+
+    /** Wrist positions in stage space, supplied by the stage every frame; null while untracked. */
+    var leftHand: Vector3? = null
+    var rightHand: Vector3? = null
     private var shownAngles: Map<Direction, Int>? = null
     private var resultAngles: Map<Direction, Int> = emptyMap()
     private var ready = false
@@ -120,7 +126,7 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
                 anchor.addChild(point)
             }
         shownDirection = null
-        (LobbyPanels.fixed + SessionPanels.all + ResultPanels.all + listOf(OrbPanels.Status, OrbPanels.Hint)).forEach(::place)
+        (LobbyPanels.fixed + SessionPanels.all + ResultPanels.all + listOf(OrbPanels.Status, OrbPanels.Hint) + ShoulderPanels.all).forEach(::place)
         shownAngles?.let { angles ->
             shownAngles = null
             showLobby(angles)
@@ -234,6 +240,13 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
                 orbScene?.destroy()
                 orbScene = null
             }
+            if (state.stage == SessionStage.SHOULDER && shoulderScene == null) {
+                shoulderScene = ShoulderScene(anchor.eyeHeightM).also(anchor::addChild)
+            }
+            if (state.stage != SessionStage.SHOULDER && shownStage == SessionStage.SHOULDER) {
+                shoulderScene?.destroy()
+                shoulderScene = null
+            }
             shownStage = state.stage
             shownPaused = state.paused
             applyVisibility(state.stage, state.paused)
@@ -279,6 +292,13 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
                 session.onOrbFrame(dt, GazePoint(yawDeg, pitchDeg), speedDps)
                 session.orbSnapshot?.let { orbScene?.update(dt, it) }
             }
+            SessionStage.SHOULDER -> {
+                val scene = shoulderScene ?: return
+                fun local(p: Vector3?) = p?.let { anchor.convertPositionFrom(it, null) }?.let { com.armilla.neckcare.scene.geometry.Vec3(it.x, it.y, it.z) }
+                val (l, r) = scene.samples(local(leftHand), local(rightHand))
+                session.onShoulderFrame(dt, l, r)
+                session.shoulderSnapshot?.let { scene.update(it, l?.ringAngleDeg, r?.ringAngleDeg) }
+            }
             else -> Unit
         }
     }
@@ -321,6 +341,9 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
         panel(SessionPanels.Reticle)?.enabled = (testing || calibrating || orb) && !paused
         OrbPanels.all.forEach { panel(it)?.enabled = orb && !paused }
         orbScene?.enabled = orb
+        val shoulder = stage == SessionStage.SHOULDER
+        ShoulderPanels.all.forEach { panel(it)?.enabled = shoulder && !paused }
+        shoulderScene?.enabled = shoulder
         panel(SessionPanels.Console)?.enabled = !lobby && stage != SessionStage.RESULT
         panel(SessionPanels.Pause)?.enabled = paused
         if (!testing) panel(SessionPanels.LastTag)?.enabled = false

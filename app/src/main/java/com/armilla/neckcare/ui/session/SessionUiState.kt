@@ -49,9 +49,22 @@ data class SessionUiState(
     val orbRemaining: String = "1:30",
     val orbTimeProgress: Float = 0f,
     val orbHint: String? = null,
+    val shoulderTitle: String = "",
+    val shoulderLaps: Int = 0,
+    val shoulderCounting: Boolean = false,
+    val shoulderHint: String = "跟着前面的小光点，一圈大约 4 秒",
+    /** Cue to play once; the stage clears it after playing. */
+    val cue: SessionCue? = null,
+    val cueSerial: Int = 0,
     val savedSessionId: Long? = null,
     val saveFailed: Boolean = false,
 )
+
+enum class SessionCue {
+    RECORDED,
+    ORB_CAUGHT,
+    LAP,
+}
 
 sealed interface SessionEvent {
     data class Start(val mode: SessionMode) : SessionEvent

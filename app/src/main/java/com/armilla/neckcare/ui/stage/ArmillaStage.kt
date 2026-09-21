@@ -40,7 +40,12 @@ import com.armilla.neckcare.ui.result.ResultUiState
 import com.armilla.neckcare.ui.result.components.ArmillaryUpdatedTag
 import com.armilla.neckcare.ui.result.components.NextWeekPanel
 import com.armilla.neckcare.ui.result.components.ResultPanel
+import com.armilla.neckcare.platform.CuePlayer
+import com.armilla.neckcare.ui.session.SessionCue
 import com.armilla.neckcare.ui.session.SessionEvent
+import com.armilla.neckcare.ui.session.components.ShoulderCentrePanel
+import com.pico.spatial.tracking.hand.HandJoint
+import com.pico.spatial.tracking.hand.HandTrackingProvider
 import com.armilla.neckcare.ui.session.SessionStage
 import com.armilla.neckcare.ui.session.SessionViewModel
 import com.armilla.neckcare.ui.session.components.BigReading
@@ -90,20 +95,28 @@ fun ArmillaStage() {
         }
 
     val hmd = remember { HMDTrackingProvider() }
+    val handTracking = remember { HandTrackingProvider() }
+    val cues = remember { CuePlayer() }
     val scene = remember {
         StageScene(density, ResourcesCompat.getFont(context, R.font.instrument_serif_regular)!!)
     }
     DisposableEffect(hmd, scene) {
         hmd.start()
+        handTracking.start()
         registerSystem<FrameSystem>()
         FrameLoop.onFrame = { dt ->
             val pose = hmd.latestData.hmdPose
+            val handData = handTracking.latestData
+            scene.leftHand = handData.left?.joint(HandJoint.Index.WRIST)?.position
+            scene.rightHand = handData.right?.joint(HandJoint.Index.WRIST)?.position
             scene.onFrame(dt, pose.position, pose.rotation, session)
         }
         onDispose {
             FrameLoop.onFrame = null
             unregisterSystem<FrameSystem>()
             hmd.stop()
+            handTracking.stop()
+            cues.release()
             scene.destroy()
         }
     }
@@ -111,6 +124,14 @@ fun ArmillaStage() {
     LaunchedEffect(Unit) {
         DesignSampleSeeder.seedIfRequested(context, AppContainer.sessions)
         lobby.onEvent(LobbyEvent.Refresh)
+    }
+    LaunchedEffect(sessionState.cueSerial) {
+        when (sessionState.cue) {
+            SessionCue.RECORDED -> cues.play(CuePlayer.Cue.RECORDED)
+            SessionCue.ORB_CAUGHT -> cues.play(CuePlayer.Cue.ORB_CAUGHT)
+            SessionCue.LAP -> cues.play(CuePlayer.Cue.LAP)
+            null -> Unit
+        }
     }
     // Back in the lobby after a session: show the new measurement.
     LaunchedEffect(sessionState.stage) {
@@ -189,6 +210,9 @@ fun ArmillaStage() {
                 ReadingTag("你的活动边界，光球不会越过", value = null, labelColor = ArmillaColors.Jade)
             }
 
+            // 肩部环绕
+            panel(ShoulderPanels.Centre) { ShoulderCentrePanel(sessionState) }
+
             // 今日数据
             panel(ResultPanels.Main) {
                 ResultPanel(
@@ -236,7 +260,7 @@ fun ArmillaStage() {
                     Direction.LEFT_BEND to 37, Direction.RIGHT_BEND to 42,
                 ),
             )
-        } else if (debuggable && java.io.File(context.getExternalFilesDir(null), "autostart_orb").exists()) {
+        } else if (debuggable && java.io.File(context.getExternalFilesDir(null), "autostart_orb").exists() || java.io.File(context.getExternalFilesDir(null), "autostart_shoulder").exists()) {
             session.finishWithReadingsForCapture(
                 SessionMode.FULL,
                 mapOf(
@@ -246,6 +270,10 @@ fun ArmillaStage() {
                 ),
                 thenExercise = true,
             )
+            if (java.io.File(context.getExternalFilesDir(null), "autostart_shoulder").exists()) {
+                kotlinx.coroutines.delay(1500)
+                session.onEvent(SessionEvent.Next)
+            }
         } else if (debuggable && java.io.File(context.getExternalFilesDir(null), "autostart_test").exists()) {
             session.calibrationAimDeg = 45f
             session.onEvent(SessionEvent.Start(SessionMode.TEST_ONLY))
