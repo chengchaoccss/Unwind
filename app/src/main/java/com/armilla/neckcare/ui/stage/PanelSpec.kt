@@ -114,3 +114,17 @@ object SessionPanels {
 
     val all = listOf(Steps, Instruction, Reading, Reticle, LastTag, Console, Pause)
 }
+
+/** Panels of "今日数据", measured off the artboard. */
+object ResultPanels {
+    /** R-01: main panel, straight ahead on the main layer. */
+    val Main = PanelSpec("result_main", 720, 712, DesignScale.MAIN_M, boardCenterPx = 800f to 410f)
+
+    /** R-03: "接下来一周" at 38° to the right, turned 22° toward the user. */
+    val NextWeek = PanelSpec("result_next", 368, 452, DesignScale.MAIN_M, azimuthDeg = 38f, elevationDeg = 3f, yawDeg = -22f)
+
+    /** R-02: caption under the small armillary on the left. */
+    val ArmillaryTag = PanelSpec("result_armillary_tag", 250, 56, DesignScale.FAR_M, boardCenterPx = 222f to 568f)
+
+    val all = listOf(Main, NextWeek, ArmillaryTag)
+}

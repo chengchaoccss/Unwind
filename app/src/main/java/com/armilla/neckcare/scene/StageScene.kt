@@ -12,6 +12,7 @@ import com.armilla.neckcare.ui.session.SessionViewModel
 import com.armilla.neckcare.ui.stage.LobbyPanels
 import com.armilla.neckcare.ui.stage.PanelGroup
 import com.armilla.neckcare.ui.stage.PanelSpec
+import com.armilla.neckcare.ui.stage.ResultPanels
 import com.armilla.neckcare.ui.stage.SessionPanels
 import com.pico.spatial.core.ecs.Entity
 import com.pico.spatial.core.ecs.TransformComponent
@@ -36,6 +37,7 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
     private var gauge: TestGauge? = null
     private var calibrationPoint: Entity? = null
     private var shownAngles: Map<Direction, Int>? = null
+    private var resultAngles: Map<Direction, Int> = emptyMap()
     private var ready = false
 
     private val followGroup = Entity()
@@ -115,7 +117,7 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
                 anchor.addChild(point)
             }
         shownDirection = null
-        (LobbyPanels.fixed + SessionPanels.all).forEach(::place)
+        (LobbyPanels.fixed + SessionPanels.all + ResultPanels.all).forEach(::place)
         shownAngles?.let { angles ->
             shownAngles = null
             showLobby(angles)
@@ -169,6 +171,25 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
             )
         }
         applyVisibility(shownStage ?: SessionStage.LOBBY, shownPaused)
+    }
+
+    /** "今日数据": the armillary moves to the left, smaller, and shows today's six readings. */
+    fun showResult(angles: Map<Direction, Int>) {
+        if (angles == resultAngles) return
+        resultAngles = angles
+        if (shownStage == SessionStage.RESULT) applyArmillary(SessionStage.RESULT)
+    }
+
+    private fun applyArmillary(stage: SessionStage) {
+        val model = armillary ?: return
+        val result = stage == SessionStage.RESULT
+        model.components[TransformComponent::class.java]?.apply {
+            // R-02: radius 112 px instead of 150 px, centred at (222, 390) on the result board.
+            setPosition(if (result) anchor.board(2.5f, 222f, 390f) else anchor.board(2.5f, 800f, ARMILLARY_BOARD_Y))
+            val scale = if (result) 112f / 150f else 1f
+            setScaleVector(Vector3(scale, scale, scale))
+        }
+        model.show(if (result) resultAngles else shownAngles.orEmpty())
     }
 
     /** One frame: follow groups, calibration and test sampling, gauge redraw. */
@@ -251,7 +272,10 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
         LobbyPanels.fixed.filter { it != LobbyPanels.Console }.forEach { panel(it)?.enabled = lobby }
         panel(LobbyPanels.Console)?.enabled = lobby || stage == SessionStage.RESULT
         Direction.entries.forEach { d -> panel(LobbyPanels.tag(d.key))?.enabled = lobby && shownAngles?.get(d) != null }
-        armillary?.enabled = lobby
+        val result = stage == SessionStage.RESULT
+        armillary?.enabled = lobby || result
+        applyArmillary(stage)
+        ResultPanels.all.forEach { panel(it)?.enabled = result }
         gauge?.enabled = testing
         calibrationPoint?.enabled = calibrating
         panel(SessionPanels.Steps)?.enabled = testing

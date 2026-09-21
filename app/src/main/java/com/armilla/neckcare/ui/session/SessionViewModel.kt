@@ -61,6 +61,18 @@ class SessionViewModel(
         }
     }
 
+    /** Debug captures only: finishes a test with the given readings, as if they had been measured. */
+    fun finishWithReadingsForCapture(mode: SessionMode, readings: Map<Direction, Int>) {
+        measurements.clear()
+        readings.forEach { (direction, angle) -> measurements[direction] = Measurement(direction, angle) }
+        _state.value = SessionUiState(stage = SessionStage.TESTING, mode = SessionMode.TEST_ONLY)
+        viewModelScope.launch {
+            history = sessions.history()
+            finishTest(partial = false)
+            _state.update { it.copy(mode = mode) }
+        }
+    }
+
     private fun isRunning() = _state.value.stage !in setOf(SessionStage.LOBBY, SessionStage.RESULT)
 
     private fun start(mode: SessionMode) {

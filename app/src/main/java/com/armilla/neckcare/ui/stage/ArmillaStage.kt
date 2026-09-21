@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,6 +35,11 @@ import com.armilla.neckcare.ui.lobby.components.ArmillaryCaption
 import com.armilla.neckcare.ui.lobby.components.LobbyActions
 import com.armilla.neckcare.ui.lobby.components.TodayPanel
 import com.armilla.neckcare.ui.lobby.components.TrendPanel
+import com.armilla.neckcare.ui.result.ResultPresenter
+import com.armilla.neckcare.ui.result.ResultUiState
+import com.armilla.neckcare.ui.result.components.ArmillaryUpdatedTag
+import com.armilla.neckcare.ui.result.components.NextWeekPanel
+import com.armilla.neckcare.ui.result.components.ResultPanel
 import com.armilla.neckcare.ui.session.SessionEvent
 import com.armilla.neckcare.ui.session.SessionStage
 import com.armilla.neckcare.ui.session.SessionViewModel
@@ -65,6 +71,16 @@ fun ArmillaStage() {
     val session: SessionViewModel = viewModel(factory = AppContainer.factory { SessionViewModel(AppContainer.sessions) })
     val lobbyState by lobby.state.collectAsStateWithLifecycle()
     val sessionState by session.state.collectAsStateWithLifecycle()
+    val settings by AppContainer.settings.settings.collectAsStateWithLifecycle()
+    val presenter = remember { ResultPresenter() }
+    val resultState by
+        produceState(ResultUiState(), sessionState.stage, sessionState.savedSessionId, sessionState.saveFailed, settings) {
+            val result = session.lastResult
+            if (sessionState.stage == SessionStage.RESULT && result != null) {
+                val history = AppContainer.sessions.history()
+                value = presenter.present(result, history, settings.autoAdjust, settings.reminderTimes)
+            }
+        }
 
     val hmd = remember { HMDTrackingProvider() }
     val scene = remember {
@@ -156,6 +172,21 @@ fun ArmillaStage() {
                     itemPaddingPx = 56,
                 )
             }
+            // 今日数据
+            panel(ResultPanels.Main) {
+                ResultPanel(
+                    resultState,
+                    saveFailed = sessionState.saveFailed,
+                    onRetest = { session.onEvent(SessionEvent.Retest) },
+                    onDone = { session.onEvent(SessionEvent.Done) },
+                    onRetrySave = { session.onEvent(SessionEvent.RetrySave) },
+                )
+            }
+            panel(ResultPanels.NextWeek) {
+                NextWeekPanel(resultState, settings.autoAdjust, AppContainer.settings::setAutoAdjust)
+            }
+            panel(ResultPanels.ArmillaryTag) { ArmillaryUpdatedTag() }
+
             panel(SessionPanels.Pause) {
                 PausePanel(
                     onResume = { session.onEvent(SessionEvent.Resume) },
@@ -165,7 +196,10 @@ fun ArmillaStage() {
                 )
             }
         },
-        update = { _, _ -> scene.showLobby(lobbyState.angles) },
+        update = { _, _ ->
+            scene.showLobby(lobbyState.angles)
+            scene.showResult(resultState.angles)
+        },
     ) { content, attachments ->
         content.addEntity(scene.anchor)
         scene.bindPanels(attachments::entity)
@@ -176,7 +210,16 @@ fun ArmillaStage() {
         Log.i(TAG, "stage ready, eye height ${scene.anchor.eyeHeightM} m")
         // Debug builds: a marker file starts a test straight away, for unattended captures.
         val debuggable = context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
-        if (debuggable && java.io.File(context.getExternalFilesDir(null), "autostart_test").exists()) {
+        if (debuggable && java.io.File(context.getExternalFilesDir(null), "autostart_result").exists()) {
+            session.finishWithReadingsForCapture(
+                SessionMode.FULL,
+                mapOf(
+                    Direction.LEFT_ROTATION to 64, Direction.RIGHT_ROTATION to 71,
+                    Direction.FLEXION to 47, Direction.EXTENSION to 59,
+                    Direction.LEFT_BEND to 37, Direction.RIGHT_BEND to 42,
+                ),
+            )
+        } else if (debuggable && java.io.File(context.getExternalFilesDir(null), "autostart_test").exists()) {
             session.calibrationAimDeg = 45f
             session.onEvent(SessionEvent.Start(SessionMode.TEST_ONLY))
         }
