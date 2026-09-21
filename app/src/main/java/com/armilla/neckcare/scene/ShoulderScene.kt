@@ -14,16 +14,30 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * 肩部环绕 (PRD §8): one guide ring per arm. The ring centre is 0.55 m from the shoulder along a
- * direction 45° outward from straight ahead, the ring plane is perpendicular to that arm direction,
- * and the ring radius is 0.28 m. Angles run from the bottom of the ring toward the back, which is
- * the direction of backward circling.
+ * 肩部环绕 (PRD §8), adapted for bare hands: one guide ring per arm, drawn in the air in front of
+ * the body. Circling the arms back past the shoulders takes the hands out of the headset's
+ * tracking cameras, so the rings stand upright facing the user, where the hands stay tracked and
+ * in view for the whole circle: centres 0.31 m to each side, 0.15 m below the eyes and 0.5 m
+ * ahead, radius 0.19 m, which spans about 13° to 45° sideways and -34° to +5° vertically and is
+ * within comfortable reach of either shoulder.
+ *
+ * Angles run from the bottom of the ring outward (away from the midline), which is the direction
+ * of the first set, "向外画圈"; the second set, "向内画圈", runs the other way. The measured centre
+ * drifts slowly toward the mean of the moving hand, so a user who circles a little off the drawn
+ * ring is still read correctly.
  */
-class ShoulderScene(private val eyeHeightM: Float, private val radiusM: Float = 0.28f) : Entity() {
+class ShoulderScene(private val eyeHeightM: Float, private val radiusM: Float = 0.19f) : Entity() {
     private inner class Ring(val sign: Float, val color: SceneColor) {
-        val normal = Vec3(sign * SIN45, 0f, -SIN45)
-        val back: Vec3 = Vec3.Y.cross(normal).normalized().let { if (it.z > 0f) it else it * -1f }
-        val centre = Vec3(sign * SHOULDER_HALF_WIDTH_M, eyeHeightM - SHOULDER_DROP_M, 0.02f) + normal * REACH_M
+        /** The ring faces the user. */
+        val normal = Vec3.Z
+
+        /** In-plane horizontal axis, pointing away from the midline. */
+        val back = Vec3(sign, 0f, 0f)
+        val shownCentre = Vec3(sign * CENTRE_SIDE_M, eyeHeightM - CENTRE_DROP_M, -CENTRE_AHEAD_M)
+        val shownBack = back
+        var centre = shownCentre
+        var lastHand: Vec3? = null
+
         var arc: List<Entity> = emptyList()
         var shownDeg = -1000f
         val hand = dot(17f, 46f, color)
@@ -31,10 +45,17 @@ class ShoulderScene(private val eyeHeightM: Float, private val radiusM: Float = 
 
         fun point(deg: Float): Vec3 {
             val a = Math.toRadians(deg.toDouble())
-            return centre + Vec3.Y * (-cos(a).toFloat() * radiusM) + back * (sin(a).toFloat() * radiusM)
+            return shownCentre + Vec3.Y * (-cos(a).toFloat() * radiusM) + shownBack * (sin(a).toFloat() * radiusM)
         }
 
-        fun sample(position: Vec3): HandSample {
+        fun sample(position: Vec3, dt: Float): HandSample {
+            // Let the measured centre follow the hand's circle, but only while the hand moves,
+            // so resting with the arms down does not drag the centre to the bottom of the circle.
+            lastHand?.let { last ->
+                val speed = (position - last).length() / dt.coerceAtLeast(1e-3f)
+                if (speed > MOVING_SPEED_MPS) centre = centre + (position - centre) * (dt / CENTRE_FOLLOW_S).coerceAtMost(1f)
+            }
+            lastHand = position
             val rel = position - centre
             val deg = Math.toDegrees(atan2(rel.dot(back).toDouble(), -rel.dot(Vec3.Y).toDouble())).toFloat()
             return HandSample((deg + 360f) % 360f, rel.dot(normal))
@@ -42,7 +63,7 @@ class ShoulderScene(private val eyeHeightM: Float, private val radiusM: Float = 
 
         private fun hollow(): Entity {
             // S-05: hollow ring, radius 10 px, paper-white 2 px stroke.
-            val circle = MeshData.arc(Vec3.ZERO, 10f * PX, Vec3.Y, back, 0f, 360f, 15f)
+            val circle = MeshData.arc(Vec3.ZERO, 10f * PX, Vec3.Y, shownBack, 0f, 360f, 15f)
             return SceneKit.model(MeshData().tube(circle, 1f * PX, 6, closed = true), SceneKit.material(SceneColor.PAPER), "pacer")!!
         }
     }
@@ -60,12 +81,12 @@ class ShoulderScene(private val eyeHeightM: Float, private val radiusM: Float = 
             val runs = split.zipWithNext()
             runs.forEach { (a, b) ->
                 val mid = ring.point((a + b) / 2)
-                val isOuter = abs(mid.x) > abs(ring.centre.x)
+                val isOuter = abs(mid.x) > abs(ring.shownCentre.x)
                 (if (isOuter) outer else inner).tube(listOf(ring.point(a), ring.point(b)), (if (isOuter) 1.2f else 0.65f) * PX, 5)
             }
             for (deg in 0 until 360 step 15) {
                 val p = ring.point(deg.toFloat())
-                val inward = (ring.centre - p).normalized()
+                val inward = (ring.shownCentre - p).normalized()
                 inner.tube(listOf(p, p + inward * (10f * PX)), 0.6f * PX, 4)
             }
             SceneKit.model(inner, SceneKit.material(SceneColor.PAPER, 0.32f), "guide_inner")?.let(::addChild)
@@ -76,8 +97,8 @@ class ShoulderScene(private val eyeHeightM: Float, private val radiusM: Float = 
     }
 
     /** Converts anchor-local hand positions into ring samples for the exercise. */
-    fun samples(leftHand: Vec3?, rightHand: Vec3?): Pair<HandSample?, HandSample?> =
-        leftHand?.let(left::sample) to rightHand?.let(right::sample)
+    fun samples(leftHand: Vec3?, rightHand: Vec3?, dt: Float): Pair<HandSample?, HandSample?> =
+        leftHand?.let { left.sample(it, dt) } to rightHand?.let { right.sample(it, dt) }
 
     fun update(snap: ShoulderSnapshot, leftAngle: Float?, rightAngle: Float?) {
         if (snap.direction != lastDirection) {
@@ -117,11 +138,13 @@ class ShoulderScene(private val eyeHeightM: Float, private val radiusM: Float = 
         }
 
     private companion object {
-        /** Ring radius 0.28 m is drawn about 200 px across on the board: 1 px = 1.4 mm here. */
-        const val PX = 0.0014f
-        const val SIN45 = 0.70710677f
-        const val REACH_M = 0.55f
-        const val SHOULDER_HALF_WIDTH_M = 0.19f
-        const val SHOULDER_DROP_M = 0.22f
+        /** Line weights of the board, scaled to a 0.19 m ring half a metre away: 1 px = 1 mm. */
+        const val PX = 0.001f
+        const val CENTRE_SIDE_M = 0.31f
+        const val CENTRE_DROP_M = 0.15f
+        const val CENTRE_AHEAD_M = 0.5f
+
+        const val CENTRE_FOLLOW_S = 6f
+        const val MOVING_SPEED_MPS = 0.15f
     }
 }

@@ -44,7 +44,7 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
     private var shoulderScene: ShoulderScene? = null
     private var shoulderLogTimer = 0f
 
-    /** Wrist positions in stage space, supplied by the stage every frame; null while untracked. */
+    /** Palm positions in stage space, supplied by the stage every frame; null while untracked. */
     var leftHand: Vector3? = null
     var rightHand: Vector3? = null
     private var shownAngles: Map<Direction, Int>? = null
@@ -299,7 +299,7 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
             SessionStage.SHOULDER -> {
                 val scene = shoulderScene ?: return
                 fun local(p: Vector3?) = p?.let { anchor.convertPositionFrom(it, null) }?.let { com.armilla.neckcare.scene.geometry.Vec3(it.x, it.y, it.z) }
-                val (l, r) = scene.samples(local(leftHand), local(rightHand))
+                val (l, r) = scene.samples(local(leftHand), local(rightHand), dt)
                 session.onShoulderFrame(dt, l, r)
                 session.shoulderSnapshot?.let { snap ->
                     scene.update(snap, l?.ringAngleDeg, r?.ringAngleDeg)

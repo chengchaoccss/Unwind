@@ -17,9 +17,10 @@ data class ShoulderConfig(
 
 enum class ShoulderPhase(val title: String) {
     NOTICE("确认两臂范围内没有东西"),
-    BACKWARD("向后画圈"),
+    /** First set. With bare hands the circles are drawn in front of the body: outward first. */
+    BACKWARD("向外画圈"),
     REST("放松一下"),
-    FORWARD("向前画圈"),
+    FORWARD("向内画圈"),
     DONE(""),
 }
 

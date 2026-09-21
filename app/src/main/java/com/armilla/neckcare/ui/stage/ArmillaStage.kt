@@ -108,8 +108,8 @@ fun ArmillaStage() {
         FrameLoop.onFrame = { dt ->
             val pose = hmd.latestData.hmdPose
             val handData = handTracking.latestData
-            scene.leftHand = handData.left?.joint(HandJoint.Index.WRIST)?.position
-            scene.rightHand = handData.right?.joint(HandJoint.Index.WRIST)?.position
+            scene.leftHand = handData.left?.joint(HandJoint.Index.PALM)?.position
+            scene.rightHand = handData.right?.joint(HandJoint.Index.PALM)?.position
             scene.onFrame(dt, pose.position, pose.rotation, session)
         }
         onDispose {
