@@ -26,7 +26,14 @@ import kotlin.random.Random
  */
 class MeteorShower(private val parent: Entity, private val eyeHeight: () -> Float) {
     private val random = Random(System.nanoTime())
-    private val material: UnlitMaterial = SceneKit.textured(paintStreak(), additive = true)
+    private val streakBitmap = paintStreak()
+
+    /**
+     * One material per meteor. Destroying an entity releases the resources it holds, so a material
+     * shared across meteors is already closed when the next one is built (this crashed the app on
+     * the second meteor). Only the bitmap is kept.
+     */
+    private var material: UnlitMaterial? = null
     private var streak: Entity? = null
     private var wait = 5f
     private var age = 0f
@@ -46,12 +53,13 @@ class MeteorShower(private val parent: Entity, private val eyeHeight: () -> Floa
         if (t >= 1f) {
             entity.destroy()
             streak = null
+            material = null
             wait = 7f + random.nextFloat() * 11f
             return
         }
         entity.components[TransformComponent::class.java]?.setPosition((start + (end - start) * t).toVector3())
         val glow = sin(PI.toFloat() * t)
-        material.setBaseColor(Color4(glow, glow, glow, 1f))
+        material?.setBaseColor(Color4(glow, glow, glow, 1f))
     }
 
     private fun launch() {
@@ -67,12 +75,13 @@ class MeteorShower(private val parent: Entity, private val eyeHeight: () -> Floa
         val toEye = (Vec3(0f, eyeHeight(), 0f) - start).normalized()
         val across = toEye.cross(travel).normalized()
         val mesh = MeshData().quad(Vec3.ZERO, travel * (LENGTH_M / 2f), across * (WIDTH_M / 2f))
+        val fresh = SceneKit.textured(streakBitmap, additive = true).apply { setBaseColor(Color4(0f, 0f, 0f, 1f)) }
+        material = fresh
         streak =
-            SceneKit.model(mesh, material, "meteor")?.also {
+            SceneKit.model(mesh, fresh, "meteor")?.also {
                 it.components[TransformComponent::class.java]?.setPosition(start.toVector3())
                 parent.addChild(it)
             }
-        material.setBaseColor(Color4(0f, 0f, 0f, 1f))
     }
 
     private fun onSky(azimuthDeg: Float, elevationDeg: Float): Vec3 {
