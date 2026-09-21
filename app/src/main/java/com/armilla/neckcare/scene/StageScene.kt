@@ -2,6 +2,7 @@ package com.armilla.neckcare.scene
 
 import android.graphics.Typeface
 import androidx.compose.ui.unit.Density
+import com.armilla.neckcare.domain.model.Axis
 import com.armilla.neckcare.domain.model.Direction
 import com.armilla.neckcare.domain.usecase.HeadAngleCalculator
 import com.armilla.neckcare.domain.usecase.Quaternion
@@ -126,6 +127,7 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
                 anchor.addChild(point)
             }
         shownDirection = null
+        // Panels go back to the centred layout; layoutForAxis moves them again when needed.
         (LobbyPanels.fixed + SessionPanels.all + ResultPanels.all + listOf(OrbPanels.Status, OrbPanels.Hint) + ShoulderPanels.all).forEach(::place)
         shownAngles?.let { angles ->
             shownAngles = null
@@ -280,6 +282,7 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
                 val now = session.state.value
                 val direction = now.current ?: return
                 if (direction != shownDirection) {
+                    if (direction.axis != shownDirection?.axis) layoutForAxis(direction.axis)
                     shownDirection = direction
                     gauge?.configure(direction, now.lastAngleDeg)
                     val last = now.lastAngleDeg
@@ -301,6 +304,26 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
             }
             else -> Unit
         }
+    }
+
+    /**
+     * Keeps the path of the gaze and the active scale clear. Looking down or up sweeps through
+     * where the bars and the console normally sit, and the vertical arc is 8° right of centre, so
+     * for flexion and extension everything moves to the left; for lateral bending the big reading
+     * moves further right, clear of the dial.
+     */
+    private fun layoutForAxis(axis: Axis) {
+        val vertical = axis == Axis.FLEXION
+        place(SessionPanels.Steps.copy(boardCenterPx = (if (vertical) 330f else 800f) to 102f))
+        place(SessionPanels.Instruction.copy(boardCenterPx = (if (vertical) 270f else 800f) to 722f))
+        place(SessionPanels.Console.copy(azimuthDeg = if (vertical) -42f else 0f, yawDeg = if (vertical) 42f else 0f))
+        val readingX =
+            when (axis) {
+                Axis.ROTATION -> 1025f
+                Axis.FLEXION -> 560f
+                Axis.LATERAL -> 1150f
+            }
+        place(SessionPanels.Reading.copy(boardCenterPx = readingX to 412f))
     }
 
     private fun lazyFollow(dt: Float, yawDeg: Float) {

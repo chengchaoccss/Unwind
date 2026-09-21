@@ -18,6 +18,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.armilla.neckcare.R
 import com.armilla.neckcare.data.repository.DesignSampleSeeder
+import com.armilla.neckcare.domain.model.Axis
 import com.armilla.neckcare.domain.model.Direction
 import com.armilla.neckcare.domain.model.SessionMode
 import com.armilla.neckcare.domain.model.Side
@@ -183,7 +184,9 @@ fun ArmillaStage() {
                 InstructionBar(sessionState, showSpeed = sessionState.stage == SessionStage.TESTING)
             }
             panel(SessionPanels.Reading) {
-                sessionState.current?.let { BigReading(it.label, sessionState.displayAngleDeg) }
+                sessionState.current?.let {
+                    BigReading(it.label, sessionState.displayAngleDeg, alignEnd = it.axis == Axis.FLEXION)
+                }
             }
             panel(SessionPanels.Reticle) { GazeReticle(sessionState.reticle, sessionState.dwellProgress) }
             panel(SessionPanels.LastTag) {
@@ -277,6 +280,15 @@ fun ArmillaStage() {
         } else if (debuggable && java.io.File(context.getExternalFilesDir(null), "autostart_test").exists()) {
             session.calibrationAimDeg = 45f
             session.onEvent(SessionEvent.Start(SessionMode.TEST_ONLY))
+            // Optional: skip ahead to a later direction, e.g. "2" lands on 前屈.
+            val skip = java.io.File(context.getExternalFilesDir(null), "autostart_test").readText().trim().toIntOrNull() ?: 0
+            if (skip > 0) {
+                kotlinx.coroutines.delay(3500)
+                repeat(skip) {
+                    session.onEvent(SessionEvent.Next)
+                    kotlinx.coroutines.delay(300)
+                }
+            }
         }
     }
 }

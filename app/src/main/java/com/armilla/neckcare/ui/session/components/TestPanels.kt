@@ -107,9 +107,14 @@ fun CheckMark(color: Color, modifier: Modifier = Modifier) {
 
 /** T-07: direction name 24 px with 0.1 em spacing over the 176 px reading, shadowed for the sky. */
 @Composable
-fun BigReading(label: String, angleDeg: Int, modifier: Modifier = Modifier) {
+fun BigReading(label: String, angleDeg: Int, modifier: Modifier = Modifier, alignEnd: Boolean = false) {
     val shadow = Shadow(Color(0xBF04090C), Offset(0f, 4f), 30f)
-    Column(modifier = modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
+    Column(
+        modifier = modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Center,
+        // Left of the reticle the reading hugs it from the other side.
+        horizontalAlignment = if (alignEnd) Alignment.End else Alignment.Start,
+    ) {
         Text(
             label,
             color = ArmillaColors.Paper,

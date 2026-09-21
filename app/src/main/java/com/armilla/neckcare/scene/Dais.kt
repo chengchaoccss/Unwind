@@ -14,7 +14,10 @@ class Dais(radiusM: Float = 1.5f) : Entity() {
     init {
         val up = Vec3.Y
         val fill = MeshData().disc(Vec3(0f, 0.002f, 0f), up, radiusM, segments = 96)
-        SceneKit.model(fill, SceneKit.material(SceneColor.INK), "dais_fill")?.let(::addChild)
+        // The scale, reticle and readings of the flexion test reach below floor level when the user
+        // looks down, so the platform must not hide them: it draws without writing depth.
+        val fillMaterial = SceneKit.material(SceneColor.INK).apply { setDepthWrite(false) }
+        SceneKit.model(fill, fillMaterial, "dais_fill")?.let(::addChild)
 
         val rim = MeshData().disc(Vec3(0f, 0.004f, 0f), up, radiusM, 96, innerRadius = radiusM - 0.006f)
         SceneKit.model(rim, SceneKit.material(SceneColor.PAPER, alpha = 0.24f), "dais_rim")?.let(::addChild)
