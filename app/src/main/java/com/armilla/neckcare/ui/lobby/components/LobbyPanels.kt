@@ -59,7 +59,7 @@ fun TodayPanel(state: LobbyUiState, modifier: Modifier = Modifier) {
             ArmillaDivider()
             Column {
                 Text(
-                    "今天的 4 分钟",
+                    "今天的 5 分钟",
                     color = ArmillaColors.Mist,
                     fontFamily = ArmillaType.Body,
                     fontWeight = FontWeight.Medium,

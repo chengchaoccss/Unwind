@@ -74,7 +74,7 @@ object LobbyPanels {
     val Actions = PanelSpec("lobby_actions", 580, 100, DesignScale.MAIN_M, elevationDeg = -16f)
 
     /** H-07: left panel at 38°, turned 22° toward the user. */
-    val Today = PanelSpec("lobby_today", 440, 548, DesignScale.MAIN_M, azimuthDeg = -38f, elevationDeg = -1f, yawDeg = 22f)
+    val Today = PanelSpec("lobby_today", 440, 604, DesignScale.MAIN_M, azimuthDeg = -38f, elevationDeg = -1f, yawDeg = 22f)
 
     /** H-08: right panel at 38°, turned 22° toward the user. */
     val Trend = PanelSpec("lobby_trend", 440, 640, DesignScale.MAIN_M, azimuthDeg = 38f, elevationDeg = 0f, yawDeg = -22f)
@@ -152,4 +152,14 @@ object ShoulderPanels {
     val Centre = PanelSpec("shoulder_centre", 400, 500, DesignScale.MAIN_M, boardCenterPx = 800f to 460f)
 
     val all = listOf(Centre)
+}
+
+/** Panels of 出拳. */
+object PunchPanels {
+    val Status = PanelSpec("punch_status", 680, 84, DesignScale.MAIN_M, boardCenterPx = 800f to 102f, group = PanelGroup.FOLLOW)
+
+    /** "已击中 12", under the status bar on the far layer. */
+    val Count = PanelSpec("punch_count", 230, 60, DesignScale.FAR_M, boardCenterPx = 800f to 215f)
+
+    val all = listOf(Status, Count)
 }

@@ -93,6 +93,9 @@ data class TestResult(
 enum class ExerciseType(val key: String) {
     ORB("orb"),
     SHOULDER("shoulder"),
+
+    /** Stores hits and launched targets in the caught / total columns. */
+    PUNCH("punch"),
 }
 
 /** Outcome of one guided exercise (PRD §12 ExerciseResult). */

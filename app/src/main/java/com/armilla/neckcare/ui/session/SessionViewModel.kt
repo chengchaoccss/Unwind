@@ -19,6 +19,9 @@ import com.armilla.neckcare.domain.usecase.OrbPathGenerator
 import com.armilla.neckcare.domain.usecase.OrbSnapshot
 import com.armilla.neckcare.domain.usecase.HeadAngles
 import com.armilla.neckcare.domain.usecase.MobilityInsights
+import com.armilla.neckcare.domain.usecase.Point3
+import com.armilla.neckcare.domain.usecase.PunchExercise
+import com.armilla.neckcare.domain.usecase.PunchSnapshot
 import com.armilla.neckcare.domain.usecase.RecorderConfig
 import com.armilla.neckcare.domain.usecase.RecorderPhase
 import com.armilla.neckcare.domain.usecase.ShoulderExercise
@@ -223,6 +226,39 @@ class SessionViewModel(
         if (next != s) _state.value = next
     }
 
+    /** Latest punch frame for the scene. */
+    var punchSnapshot: PunchSnapshot? = null
+        private set
+
+    private var punch: PunchExercise? = null
+
+    /** Punch frame: fist positions relative to the eyes, or null while a hand is not tracked. */
+    fun onPunchFrame(dtSeconds: Float, left: Point3?, right: Point3?) {
+        val s = _state.value
+        if (s.stage != SessionStage.PUNCH || s.paused) return
+        val exercise = punch ?: PunchExercise().also { punch = it }
+        val snap = exercise.update(dtSeconds, left, right)
+        punchSnapshot = snap
+        if (snap.finished) {
+            val sessionId = lastResult?.sessionId ?: 0L
+            viewModelScope.launch {
+                runCatching { sessions.saveExercise(ExerciseResult(sessionId, ExerciseType.PUNCH, 60, orbsCaught = snap.hits, orbsTotal = snap.launched)) }
+            }
+            punch = null
+            _state.update { it.copy(stage = SessionStage.RESULT) }
+            return
+        }
+        val next =
+            s.copy(
+                punchHits = snap.hits,
+                punchRemaining = "%d:%02d".format(snap.remainingSeconds / 60, snap.remainingSeconds % 60),
+                punchProgress = (snap.timeProgress * 160).roundToInt() / 160f,
+                cue = if (snap.justHit) SessionCue.PUNCH else s.cue,
+                cueSerial = if (snap.justHit) s.cueSerial + 1 else s.cueSerial,
+            )
+        if (next != s) _state.value = next
+    }
+
     /** Latest shoulder frame for the scene. */
     var shoulderSnapshot: ShoulderSnapshot? = null
         private set
@@ -246,7 +282,7 @@ class SessionViewModel(
                 }
             }
             shoulder = null
-            _state.update { it.copy(stage = SessionStage.RESULT) }
+            _state.update { it.copy(stage = SessionStage.PUNCH) }
             return
         }
         val counting = snap.phase == ShoulderPhase.BACKWARD || snap.phase == ShoulderPhase.FORWARD
@@ -283,7 +319,8 @@ class SessionViewModel(
                 advance()
             }
             SessionStage.ORB -> { orb = null; _state.update { it.copy(stage = SessionStage.SHOULDER, paused = false, orbHint = null) } }
-            SessionStage.SHOULDER -> { shoulder = null; _state.update { it.copy(stage = SessionStage.RESULT, paused = false) } }
+            SessionStage.SHOULDER -> { shoulder = null; _state.update { it.copy(stage = SessionStage.PUNCH, paused = false) } }
+            SessionStage.PUNCH -> { punch = null; _state.update { it.copy(stage = SessionStage.RESULT, paused = false) } }
             else -> Unit
         }
     }

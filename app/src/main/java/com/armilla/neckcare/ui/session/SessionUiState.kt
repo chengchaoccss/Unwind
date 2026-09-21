@@ -9,6 +9,7 @@ enum class SessionStage {
     TESTING,
     ORB,
     SHOULDER,
+    PUNCH,
     RESULT,
 }
 
@@ -53,6 +54,9 @@ data class SessionUiState(
     val shoulderLaps: Int = 0,
     val shoulderCounting: Boolean = false,
     val shoulderHint: String = "跟着前面的小光点，一圈大约 4 秒",
+    val punchHits: Int = 0,
+    val punchRemaining: String = "1:00",
+    val punchProgress: Float = 0f,
     /** Cue to play once; the stage clears it after playing. */
     val cue: SessionCue? = null,
     val cueSerial: Int = 0,
@@ -64,6 +68,7 @@ enum class SessionCue {
     RECORDED,
     ORB_CAUGHT,
     LAP,
+    PUNCH,
 }
 
 sealed interface SessionEvent {

@@ -16,6 +16,7 @@ class CuePlayer {
         RECORDED(587.33),
         ORB_CAUGHT(783.99),
         LAP(440.0),
+        PUNCH(329.63),
     }
 
     private val tracks = Cue.entries.associateWith(::build)

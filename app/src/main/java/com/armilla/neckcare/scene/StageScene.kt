@@ -15,7 +15,9 @@ import com.armilla.neckcare.domain.usecase.GazePoint
 import com.armilla.neckcare.ui.stage.LobbyPanels
 import com.armilla.neckcare.ui.stage.OrbPanels
 import com.armilla.neckcare.ui.stage.PanelGroup
+import com.armilla.neckcare.domain.usecase.Point3
 import com.armilla.neckcare.ui.stage.PanelSpec
+import com.armilla.neckcare.ui.stage.PunchPanels
 import com.armilla.neckcare.ui.stage.ResultPanels
 import com.armilla.neckcare.ui.stage.SessionPanels
 import com.armilla.neckcare.ui.stage.ShoulderPanels
@@ -45,6 +47,7 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
     private var orbScene: OrbScene? = null
     private var shoulderScene: ShoulderScene? = null
     private var shoulderLogTimer = 0f
+    private var punchScene: PunchScene? = null
 
     /** Palm positions in stage space, supplied by the stage every frame; null while untracked. */
     var leftHand: Vector3? = null
@@ -132,7 +135,7 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
             }
         shownDirection = null
         // Panels go back to the centred layout; layoutForAxis moves them again when needed.
-        (LobbyPanels.fixed + SessionPanels.all + ResultPanels.all + listOf(OrbPanels.Status, OrbPanels.Hint) + ShoulderPanels.all).forEach(::place)
+        (LobbyPanels.fixed + SessionPanels.all + ResultPanels.all + listOf(OrbPanels.Status, OrbPanels.Hint) + ShoulderPanels.all + PunchPanels.all).forEach(::place)
         shownAngles?.let { angles ->
             shownAngles = null
             showLobby(angles)
@@ -251,6 +254,11 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
             if (state.stage == SessionStage.SHOULDER && shoulderScene == null) {
                 shoulderScene = ShoulderScene(anchor.eyeHeightM).also(anchor::addChild)
             }
+            if (state.stage == SessionStage.PUNCH && punchScene == null) punchScene = PunchScene(anchor.eyeHeightM).also(anchor::addChild)
+            if (state.stage != SessionStage.PUNCH && shownStage == SessionStage.PUNCH) {
+                punchScene?.destroy()
+                punchScene = null
+            }
             if (state.stage != SessionStage.SHOULDER && shownStage == SessionStage.SHOULDER) {
                 shoulderScene?.destroy()
                 shoulderScene = null
@@ -315,6 +323,14 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
                         android.util.Log.i("ArmillaShoulder", "phase=${snap.phase} laps=${snap.laps} L=$l ${snap.left} R=$r ${snap.right} pacer=${snap.pacerDeg.toInt()}")
                     }
                 }
+            }
+            SessionStage.PUNCH -> {
+                fun fist(p: Vector3?) =
+                    p?.let { anchor.convertPositionFrom(it, null) }?.let { Point3(it.x, it.y - anchor.eyeHeightM, it.z) }
+                val l = fist(leftHand)
+                val r = fist(rightHand)
+                session.onPunchFrame(dt, l, r)
+                session.punchSnapshot?.let { punchScene?.update(it, l, r) }
             }
             else -> Unit
         }
@@ -381,6 +397,9 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
         val shoulder = stage == SessionStage.SHOULDER
         ShoulderPanels.all.forEach { panel(it)?.enabled = shoulder && !paused }
         shoulderScene?.enabled = shoulder
+        val punching = stage == SessionStage.PUNCH
+        PunchPanels.all.forEach { panel(it)?.enabled = punching && !paused }
+        punchScene?.enabled = punching
         panel(SessionPanels.Console)?.enabled = !lobby && stage != SessionStage.RESULT
         panel(SessionPanels.Pause)?.enabled = paused
         if (!testing) panel(SessionPanels.LastTag)?.enabled = false

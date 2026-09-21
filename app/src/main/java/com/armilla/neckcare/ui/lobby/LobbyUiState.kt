@@ -34,6 +34,7 @@ data class LobbyUiState(
                 PlanRow("1", "活动度测试", "30", "秒"),
                 PlanRow("2", "视线接光球", "90", "秒"),
                 PlanRow("3", "肩部环绕", "90", "秒"),
+                PlanRow("4", "出拳", "60", "秒"),
             )
     }
 }

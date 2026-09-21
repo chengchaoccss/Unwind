@@ -136,6 +136,7 @@ fun ArmillaStage() {
             SessionCue.RECORDED -> cues.play(CuePlayer.Cue.RECORDED)
             SessionCue.ORB_CAUGHT -> cues.play(CuePlayer.Cue.ORB_CAUGHT)
             SessionCue.LAP -> cues.play(CuePlayer.Cue.LAP)
+            SessionCue.PUNCH -> cues.play(CuePlayer.Cue.PUNCH)
             null -> Unit
         }
     }
@@ -220,6 +221,10 @@ fun ArmillaStage() {
 
             // 肩部环绕
             panel(ShoulderPanels.Centre) { ShoulderCentrePanel(sessionState) }
+
+            // 出拳
+            panel(PunchPanels.Status) { ExerciseStatusBar("出拳", sessionState.punchProgress, sessionState.punchRemaining) }
+            panel(PunchPanels.Count) { ReadingTag("已击中", "${sessionState.punchHits}", valueSizePx = 34) }
 
             // 今日数据
             panel(ResultPanels.Main) {
