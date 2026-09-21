@@ -1,7 +1,5 @@
 package com.armilla.neckcare.domain.usecase
 
-import kotlin.math.PI
-import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
@@ -17,6 +15,39 @@ data class GazePoint(val azimuthDeg: Float, val elevationDeg: Float) {
 data class OrbPath(val samples: List<GazePoint>, val catchIndices: List<Int>, val boundary: MotionBoundary) {
     val catchPoints: List<GazePoint>
         get() = catchIndices.map { samples[it] }
+
+    /** Degrees travelled along the route up to each sample; the last entry closes the loop. */
+    val cumulativeDeg: FloatArray by lazy {
+        FloatArray(samples.size + 1).also { c ->
+            for (i in samples.indices) c[i + 1] = c[i] + samples[i].distanceTo(samples[(i + 1) % samples.size]).coerceAtLeast(1e-4f)
+        }
+    }
+
+    val lengthDeg: Float
+        get() = cumulativeDeg[samples.size]
+
+    fun wrap(arcDeg: Float): Float = ((arcDeg % lengthDeg) + lengthDeg) % lengthDeg
+
+    /** Index of the sample at or just before [arcDeg] along the route. */
+    fun sampleAt(arcDeg: Float): Int {
+        val a = wrap(arcDeg)
+        var lo = 0
+        var hi = samples.size - 1
+        while (lo < hi) {
+            val mid = (lo + hi + 1) / 2
+            if (cumulativeDeg[mid] <= a) lo = mid else hi = mid - 1
+        }
+        return lo
+    }
+
+    fun pointAtArc(arcDeg: Float): GazePoint {
+        val a = wrap(arcDeg)
+        val i = sampleAt(a)
+        val p = samples[i]
+        val q = samples[(i + 1) % samples.size]
+        val t = ((a - cumulativeDeg[i]) / (cumulativeDeg[i + 1] - cumulativeDeg[i])).coerceIn(0f, 1f)
+        return GazePoint(p.azimuthDeg + (q.azimuthDeg - p.azimuthDeg) * t, p.elevationDeg + (q.elevationDeg - p.elevationDeg) * t)
+    }
 }
 
 /**
@@ -93,11 +124,20 @@ object OrbPathGenerator {
 
 data class OrbConfig(
     val durationSeconds: Float = 90f,
-    val maxSpeedDps: Float = 15f,
-    val nearBoundarySpeedDps: Float = 8f,
+    /**
+     * PRD §7 capped the orb at 15°/s, 8°/s near the boundary. Worn, that read as slow and the hard
+     * stops as jerky; the product owner asked for a quicker, smoother orb and no speed limits.
+     */
+    val maxSpeedDps: Float = 32f,
+    val nearBoundarySpeedDps: Float = 20f,
     val nearBoundaryDeg: Float = 10f,
-    val catchRadiusDeg: Float = 4.7f,
-    val catchSeconds: Float = 1.5f,
+    /** The orb eases up to speed and brakes into each catch point instead of stopping dead. */
+    val accelerationDps2: Float = 45f,
+    val brakingDps2: Float = 40f,
+    val catchRadiusDeg: Float = 5.5f,
+    val catchSeconds: Float = 1.0f,
+    /** Twice round the twelve catch points, so the quicker orb still fills the 90 s. */
+    val laps: Int = 2,
     val waitAfterAwaySeconds: Float = 3f,
     val tooFastHeadDps: Float = 60f,
     val tooFastPauseSeconds: Float = 1f,
@@ -117,17 +157,20 @@ data class OrbSnapshot(
     val justCaught: Boolean,
     val finished: Boolean,
     val sampleIndex: Int,
+    /** Degrees along the route, for drawing the trail behind the orb. */
+    val arcDeg: Float,
     val nextCatchOrdinal: Int,
 )
 
 /**
- * PRD §7 rules: the orb never exceeds 15°/s (8°/s near the boundary); gaze time inside the catch
- * ring accumulates and never runs backward; the orb waits at a catch point until it is caught, and
- * where it is when the gaze has been away for 3 s; a head turn above 60°/s pauses it for 1 s.
- * Nothing is scored down and nothing reports failure.
+ * PRD §7 rules, with the speeds of [OrbConfig]: gaze time inside the catch ring accumulates and
+ * never runs backward; the orb waits at a catch point until it is caught, and eases to a stop where
+ * it is when the gaze has been away for 3 s. Nothing is scored down and nothing reports failure.
  */
 class OrbExercise(private val path: OrbPath, private val config: OrbConfig = OrbConfig()) {
-    private var index = 0f
+    private val total = OrbPathGenerator.TOTAL * config.laps
+    private var arc = 0f
+    private var speed = 0f
     private var nextCatch = 1 % path.catchIndices.size
     private var caught = 0
     private var inRing = 0f
@@ -139,92 +182,68 @@ class OrbExercise(private val path: OrbPath, private val config: OrbConfig = Orb
     fun update(dtSeconds: Float, gaze: GazePoint, headSpeedDps: Float): OrbSnapshot {
         val dt = dtSeconds.coerceIn(0f, 0.1f)
         elapsed += dt
-        val finishedBefore = isFinished()
         var justCaught = false
-        if (!finishedBefore) {
+        if (!isFinished()) {
             if (config.pauseOnFastHead && headSpeedDps > config.tooFastHeadDps) {
                 pause = config.tooFastPauseSeconds
                 hint = 3f
+                speed = 0f
             }
             pause = (pause - dt).coerceAtLeast(0f)
             hint = (hint - dt).coerceAtLeast(0f)
 
-            val here = position()
-            val looking = gaze.distanceTo(here) <= config.catchRadiusDeg
+            val looking = gaze.distanceTo(path.pointAtArc(arc)) <= config.catchRadiusDeg
             if (looking) { inRing += dt; away = 0f } else away += dt
 
-            val target = path.catchIndices[nextCatch].toFloat()
-            val atTarget = forwardDistance(index, target) < 0.5f
-            if (atTarget && inRing >= config.catchSeconds) {
-                caught++
-                justCaught = true
-                inRing = 0f
-                nextCatch = (nextCatch + 1) % path.catchIndices.size
-            } else if (!atTarget && pause <= 0f && away < config.waitAfterAwaySeconds) {
-                advance(dt, target)
+            val remaining = path.wrap(path.cumulativeDeg[path.catchIndices[nextCatch]] - arc)
+            val atTarget = remaining < AT_TARGET_DEG || remaining > path.lengthDeg - AT_TARGET_DEG
+            if (atTarget) {
+                speed = 0f
+                if (looking && inRing >= config.catchSeconds) {
+                    caught++
+                    justCaught = true
+                    inRing = 0f
+                    nextCatch = (nextCatch + 1) % path.catchIndices.size
+                }
+            } else {
+                advance(dt, remaining, hold = pause > 0f || away >= config.waitAfterAwaySeconds)
             }
         }
-        val remaining = (config.durationSeconds - elapsed).coerceAtLeast(0f)
+        val remainingSeconds = (config.durationSeconds - elapsed).coerceAtLeast(0f)
         return OrbSnapshot(
-            position = position(),
+            position = path.pointAtArc(arc),
             caught = caught,
-            total = OrbPathGenerator.TOTAL,
+            total = total,
             catchProgress = (inRing / config.catchSeconds).coerceIn(0f, 1f),
-            remainingSeconds = kotlin.math.ceil(remaining).toInt(),
+            remainingSeconds = kotlin.math.ceil(remainingSeconds).toInt(),
             timeProgress = (elapsed / config.durationSeconds).coerceIn(0f, 1f),
             waiting = away >= config.waitAfterAwaySeconds,
             showSlowHint = hint > 0f,
             justCaught = justCaught,
             finished = isFinished(),
-            sampleIndex = index.toInt() % path.samples.size,
+            sampleIndex = path.sampleAt(arc),
+            arcDeg = arc,
             nextCatchOrdinal = nextCatch,
         )
     }
 
-    private fun isFinished() = elapsed >= config.durationSeconds || caught >= OrbPathGenerator.TOTAL
+    private fun isFinished() = elapsed >= config.durationSeconds || caught >= total
 
-    private fun advance(dt: Float, target: Float) {
-        val here = position()
+    private fun advance(dt: Float, remaining: Float, hold: Boolean) {
+        val here = path.pointAtArc(arc)
         val near = (1f - OrbPathGenerator.boundaryFraction(here, path.boundary)) * minExtent() < config.nearBoundaryDeg
-        val speed = if (near) config.nearBoundarySpeedDps else config.maxSpeedDps
-        var budget = speed * dt
-        while (budget > 0f) {
-            val i = index.toInt() % path.samples.size
-            val j = (i + 1) % path.samples.size
-            val segment = path.samples[i].distanceTo(path.samples[j]).coerceAtLeast(1e-4f)
-            val fraction = index - index.toInt()
-            val left = segment * (1f - fraction)
-            val toTarget = forwardDistance(index, target)
-            if (budget >= left && toTarget >= 1f - fraction) {
-                index = ((index.toInt() + 1) % path.samples.size).toFloat()
-                budget -= left
-                if (abs(index - target) < 1e-3f) return
-            } else {
-                index += minOf(budget / segment, toTarget)
-                return
-            }
-        }
+        val cruise = if (near) config.nearBoundarySpeedDps else config.maxSpeedDps
+        // The speed from which constant braking stops exactly on the catch point.
+        val braking = sqrt(2f * config.brakingDps2 * remaining)
+        val wanted = if (hold) 0f else minOf(cruise, maxOf(braking, CRAWL_DPS))
+        speed += (wanted - speed).coerceIn(-config.brakingDps2 * 2f * dt, config.accelerationDps2 * dt)
+        arc = path.wrap(arc + minOf(speed * dt, remaining))
     }
 
     private fun minExtent() = with(path.boundary) { minOf(left, right, up, down) }
 
-    private fun forwardDistance(from: Float, to: Float): Float {
-        val n = path.samples.size
-        return ((to - from) % n + n) % n
-    }
-
-    private fun position(): GazePoint {
-        val n = path.samples.size
-        val i = index.toInt() % n
-        val j = (i + 1) % n
-        val t = index - index.toInt()
-        val a = path.samples[i]
-        val b = path.samples[j]
-        return GazePoint(a.azimuthDeg + (b.azimuthDeg - a.azimuthDeg) * t, a.elevationDeg + (b.elevationDeg - a.elevationDeg) * t)
-    }
-
-    companion object {
-        /** Unused helper kept out: PI import guard for polar maths in tests. */
-        internal const val TWO_PI = (2 * PI).toFloat()
+    private companion object {
+        const val AT_TARGET_DEG = 0.03f
+        const val CRAWL_DPS = 1.5f
     }
 }

@@ -20,6 +20,7 @@ import com.armilla.neckcare.ui.stage.PanelGroup
 import com.armilla.neckcare.domain.usecase.Point3
 import com.armilla.neckcare.ui.stage.PagePanels
 import com.armilla.neckcare.ui.stage.PanelSpec
+import com.armilla.neckcare.ui.theme.DesignScale
 import com.armilla.neckcare.ui.stage.PunchPanels
 import com.armilla.neckcare.ui.stage.ResultPanels
 import com.armilla.neckcare.ui.stage.SessionPanels
@@ -179,10 +180,13 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
         panels[spec.id] ?: entityOf?.invoke(spec.id)?.also { panels[spec.id] = it }
 
     private fun place(spec: PanelSpec) {
+        // Panel layers are drawn in toward straight ahead (DesignScale.COMFORT). The far layer is
+        // placed against 3D content, which keeps true angles, so its positions stay as drawn.
+        val c = if (spec.distanceM == DesignScale.FAR_M) 1f else DesignScale.COMFORT
         val position =
-            spec.boardCenterPx?.let { anchor.board(spec.distanceM, it.first, it.second) }
-                ?: anchor.polar(spec.distanceM, spec.azimuthDeg, spec.elevationDeg)
-        place(spec, position)
+            spec.boardCenterPx?.let { anchor.board(spec.distanceM, 800f + (it.first - 800f) * c, 450f + (it.second - 450f) * c) }
+                ?: anchor.polar(spec.distanceM, spec.azimuthDeg * c, spec.elevationDeg * c)
+        place(spec.copy(yawDeg = spec.yawDeg * c, pitchDeg = spec.pitchDeg * c), position)
     }
 
     /** Parents a panel under any entity, e.g. the count tag that travels with the orb. */
@@ -520,7 +524,7 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
                 Direction.EXTENSION to (-25f to -182f),
                 Direction.LEFT_BEND to (-175f to -122f),
                 Direction.RIGHT_BEND to (180f to -137f),
-                Direction.LEFT_ROTATION to (-230f to -2f),
+                Direction.LEFT_ROTATION to (-210f to -2f),
                 Direction.RIGHT_ROTATION to (188f to -20f),
                 Direction.FLEXION to (-50f to 196f),
             )

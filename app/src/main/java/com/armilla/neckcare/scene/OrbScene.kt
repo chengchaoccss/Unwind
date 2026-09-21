@@ -32,10 +32,14 @@ class OrbScene(private val eyeHeightM: Float, private val path: OrbPath) : Entit
     private val haloMaterial: UnlitMaterial
     private var progressArc: Entity? = null
     private var shownProgress = -1
-    private var trail: List<Entity> = emptyList()
-    private var ahead: List<Entity> = emptyList()
-    private var shownSample = -100
+    private class Segment(val core: Entity, val glow: Entity, val coreRadius: Float, val glowRadius: Float)
+
+    /** Fixed pool: moved every frame, never rebuilt, so the trail glides with the orb. */
+    private val trail = ArrayList<Segment>()
+    private var previews: List<Entity> = emptyList()
     private var shownNext = -1
+    private var lastArc = Float.NaN
+    private var trailDeg = 0f
     private var breath = 0f
     private var flash = 0f
 
@@ -58,6 +62,8 @@ class OrbScene(private val eyeHeightM: Float, private val path: OrbPath) : Entit
         SceneKit.model(ring, SceneKit.material(SceneColor.PAPER, 0.30f), "catch_ring")?.let(pivot::addChild)
 
         buildBoundary()
+        buildRoute()
+        buildTrail()
     }
 
     /** Anchor-local position of a gaze direction on the 2.5 m sphere. */
@@ -92,61 +98,95 @@ class OrbScene(private val eyeHeightM: Float, private val path: OrbPath) : Entit
                     SceneKit.model(MeshData().tube(arc, 2f * PX, 8), SceneKit.material(SceneColor.AMBER), "catch_progress")?.also(pivot::addChild)
                 }
         }
-        if (kotlin.math.abs(snap.sampleIndex - shownSample) >= 2 || snap.nextCatchOrdinal != shownNext) {
-            shownSample = snap.sampleIndex
+        if (snap.nextCatchOrdinal != shownNext) {
             shownNext = snap.nextCatchOrdinal
-            rebuildRoute(snap)
+            rebuildPreviews(snap.nextCatchOrdinal)
+        }
+        moveTrail(dt, snap.arcDeg)
+    }
+
+    /**
+     * O-05: amber trail fading away behind the orb. Its length follows the orb's speed, so it
+     * draws out as the orb sets off and gathers back in as the orb settles on a catch point.
+     */
+    private fun moveTrail(dt: Float, arcDeg: Float) {
+        val moved = if (lastArc.isNaN()) 0f else path.wrap(arcDeg - lastArc).let { if (it > path.lengthDeg / 2f) 0f else it }
+        lastArc = arcDeg
+        val speed = if (dt > 1e-4f) moved / dt else 0f
+        val wanted = TRAIL_MAX_DEG * (speed / TRAIL_FULL_SPEED_DPS).coerceIn(0f, 1f)
+        trailDeg += (wanted - trailDeg) * (dt * 4f).coerceIn(0f, 1f)
+        val step = trailDeg / trail.size
+        var head = pointAt(path.pointAtArc(arcDeg))
+        trail.forEachIndexed { i, segment ->
+            val tail = pointAt(path.pointAtArc(arcDeg - step * (i + 1)))
+            val along = tail - head
+            val length = along.length()
+            val turn = if (length < 1e-4f) null else aim(along)
+            for ((entity, radius) in listOf(segment.core to segment.coreRadius, segment.glow to segment.glowRadius)) {
+                entity.components[TransformComponent::class.java]?.apply {
+                    if (turn == null) setScaleVector(Vector3(0f, 0f, 0f))
+                    else {
+                        setPosition(Vector3(head.x, head.y, head.z))
+                        setQuaternion(turn)
+                        setScaleVector(Vector3(radius, radius, length))
+                    }
+                }
+            }
+            head = tail
         }
     }
 
-    private fun rebuildRoute(snap: OrbSnapshot) {
-        (trail + ahead).forEach { it.destroy() }
-        val n = path.samples.size
+    private fun buildTrail() {
+        // One unit tube along -Z, stretched between two points of the route every frame.
+        val unit = MeshData().tube(listOf(Vec3.ZERO, Vec3(0f, 0f, -1f)), 1f, 8)
+        for (i in 0 until TRAIL_SEGMENTS) {
+            val t = 1f - i / TRAIL_SEGMENTS.toFloat()
+            val core = SceneKit.model(unit, SceneKit.material(SceneColor.AMBER, 0.85f * t * t), "trail") ?: continue
+            val glow = SceneKit.model(unit, SceneKit.material(SceneColor.AMBER, 0.2f * t, additive = true), "trail_glow") ?: continue
+            trail += Segment(core, glow, (0.6f + 1.6f * t) * PX, (2f + 6f * t) * PX)
+            addChild(glow)
+            addChild(core)
+        }
+    }
+
+    /** Shortest rotation that turns -Z to [direction]. */
+    private fun aim(direction: Vec3): Quat {
+        val f = direction.normalized()
+        val from = Vec3(0f, 0f, -1f)
+        val axis = from.cross(f)
+        val dot = from.dot(f).coerceIn(-1f, 1f)
+        if (axis.length() < 1e-4f) return if (dot > 0f) Quat.identity() else Quat(Vector3(0f, 1f, 0f), PI.toFloat())
+        val a = axis.normalized()
+        return Quat(Vector3(a.x, a.y, a.z), kotlin.math.acos(dot))
+    }
+
+    /** O-06: the whole route as paper-white dots 4 px across, 17 px apart. Built once. */
+    private fun buildRoute() {
+        val dots = MeshData()
+        var arc = 0f
+        val stepDeg = Math.toDegrees((17f * PX / RADIUS_M).toDouble()).toFloat()
+        while (arc < path.lengthDeg) {
+            dots.sphere(pointAt(path.pointAtArc(arc)), 2f * PX, 6, 4)
+            arc += stepDeg
+        }
+        SceneKit.model(dots, SceneKit.material(SceneColor.PAPER, 0.4f), "route")?.let(::addChild)
+    }
+
+    /** O-07: the next three catch points as hollow rings, nearer ones larger and brighter. */
+    private fun rebuildPreviews(next: Int) {
+        previews.forEach { it.destroy() }
         val created = ArrayList<Entity>()
-
-        // O-05: amber trail fading in toward the orb; three steps stand in for the gradient.
-        val behind = (0..TRAIL_SAMPLES).map { pointAt(path.samples[((snap.sampleIndex - TRAIL_SAMPLES + it) % n + n) % n]) } + pointAt(snap.position)
-        val third = behind.size / 3
-        listOf(0.2f, 0.5f, 0.85f).forEachIndexed { i, alpha ->
-            val part = behind.subList(i * third, if (i == 2) behind.size else (i + 1) * third + 1)
-            if (part.size >= 2) {
-                SceneKit.model(MeshData().tube(part, 7f * PX, 6), SceneKit.material(SceneColor.AMBER, alpha * 0.2f, additive = true), "trail_glow")?.let(created::add)
-                SceneKit.model(MeshData().tube(part, 1.75f * PX, 6), SceneKit.material(SceneColor.AMBER, alpha), "trail")?.let(created::add)
-            }
-        }
-        trail = created.toList()
-
-        // O-06: paper-white dots 4 px across, 17 px apart, fading from 75 % to 12 % with distance.
-        val near = MeshData()
-        val far = MeshData()
-        var travelled = 0f
-        var nextDot = 17f * PX * 4
-        var previous = pointAt(snap.position)
-        for (k in 1..AHEAD_SAMPLES) {
-            val point = pointAt(path.samples[(snap.sampleIndex + k) % n])
-            travelled += (point - previous).length()
-            previous = point
-            if (travelled >= nextDot) {
-                nextDot += 17f * PX
-                (if (k < AHEAD_SAMPLES / 2) near else far).sphere(point, 2f * PX, 6, 4)
-            }
-        }
-        val aheadEntities = ArrayList<Entity>()
-        SceneKit.model(near, SceneKit.material(SceneColor.PAPER, 0.75f), "route_near")?.let(aheadEntities::add)
-        SceneKit.model(far, SceneKit.material(SceneColor.PAPER, 0.3f), "route_far")?.let(aheadEntities::add)
-
-        // O-07: the next three catch points as hollow rings, nearer ones larger and brighter.
         listOf(15f to 0.75f, 11f to 0.55f, 8f to 0.4f).forEachIndexed { i, (radiusPx, alpha) ->
-            val gaze = path.catchPoints[(snap.nextCatchOrdinal + i) % path.catchPoints.size]
+            val gaze = path.catchPoints[(next + i) % path.catchPoints.size]
             val centre = pointAt(gaze)
             val toEye = (Vec3(0f, eyeHeightM, 0f) - centre).normalized()
             val right = Vec3.Y.cross(toEye).normalized()
             val up = toEye.cross(right)
             val ring = MeshData().tube(MeshData.arc(centre, radiusPx * PX, up, right, 0f, 360f, 12f), 0.7f * PX, 5, closed = true)
-            SceneKit.model(ring, SceneKit.material(SceneColor.PAPER, alpha), "catch_preview")?.let(aheadEntities::add)
+            SceneKit.model(ring, SceneKit.material(SceneColor.PAPER, alpha), "catch_preview")?.let(created::add)
         }
-        ahead = aheadEntities
-        (trail + ahead).forEach(::addChild)
+        previews = created
+        previews.forEach(::addChild)
     }
 
     /** O-08: jade dots along the ellipse of the motion boundary, 70 %. */
@@ -199,7 +239,8 @@ class OrbScene(private val eyeHeightM: Float, private val path: OrbPath) : Entit
     private companion object {
         const val RADIUS_M = 2.5f
         const val PX = 0.003125f
-        const val TRAIL_SAMPLES = 18
-        const val AHEAD_SAMPLES = 44
+        const val TRAIL_SEGMENTS = 20
+        const val TRAIL_MAX_DEG = 16f
+        const val TRAIL_FULL_SPEED_DPS = 24f
     }
 }

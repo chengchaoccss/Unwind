@@ -1,5 +1,12 @@
 package com.armilla.neckcare.ui.components
 
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitEachGesture
+import android.util.Log
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
@@ -242,6 +249,9 @@ fun ConsoleBar(items: List<ConsoleItem>, modifier: Modifier = Modifier, itemPadd
 @Composable
 private fun ConsoleButton(item: ConsoleItem, paddingPx: Int) {
     val interactionSource = remember { MutableInteractionSource() }
+    val action = rememberUpdatedState(item.onClick)
+    val label = rememberUpdatedState(item.label)
+    val lastFired = remember { mutableLongStateOf(0L) }
     val tint = if (item.selected) ArmillaColors.Paper else ArmillaColors.Mist
     Row(
         modifier =
@@ -249,11 +259,26 @@ private fun ConsoleButton(item: ConsoleItem, paddingPx: Int) {
                 .clip(CircleShape)
                 .background(if (item.selected) ArmillaColors.ConsoleSelectedFill else Color.Transparent)
                 .spatialHoverEffect()
+                // The console is low and tilted, so the hand ray meets it at a shallow angle and a
+                // pinch drags the hit point off the pill before release: clickable then sees a
+                // press that ends outside and never fires ("下一项" did nothing in the headset).
+                // The pill therefore acts when the pinch lands, not when it lets go.
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                        val now = down.uptimeMillis
+                        Log.i("ArmillaConsole", "down on ${'$'}{label.value} at ${'$'}{down.position}")
+                        if (now - lastFired.longValue > 350) {
+                            lastFired.longValue = now
+                            action.value()
+                        }
+                    }
+                }
                 .clickable(
                     interactionSource = interactionSource,
                     indication = LocalIndication.current,
                     role = Role.Tab,
-                    onClick = item.onClick,
+                    onClick = {},
                 )
                 .controllerHapticFeedback(interactionSource = interactionSource)
                 .padding(horizontal = paddingPx.dpx),

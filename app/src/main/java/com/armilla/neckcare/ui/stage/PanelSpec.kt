@@ -65,19 +65,23 @@ data class PanelSpec(
     }
 }
 
-/** Panels of the lobby (大厅), measured off the artboard. */
+/**
+ * Panels of the lobby (大厅), measured off the artboard. Angles here are before the draw-in of
+ * DesignScale.COMFORT; the side panels and the buttons are set a little wider than the board so
+ * that, once drawn in, they still clear the armillary's tags on the far layer.
+ */
 object LobbyPanels {
     /** H-02: caption above the armillary, on the 2.5 m layer. */
     val Caption = PanelSpec("lobby_caption", 560, 96, DesignScale.FAR_M, boardCenterPx = 800f to 122f)
 
     /** H-05/H-06: both buttons, straight ahead below the armillary. */
-    val Actions = PanelSpec("lobby_actions", 580, 100, DesignScale.MAIN_M, elevationDeg = -16f)
+    val Actions = PanelSpec("lobby_actions", 580, 100, DesignScale.MAIN_M, elevationDeg = -21f)
 
     /** H-07: left panel at 38°, turned 22° toward the user. */
-    val Today = PanelSpec("lobby_today", 440, 604, DesignScale.MAIN_M, azimuthDeg = -38f, elevationDeg = -1f, yawDeg = 22f)
+    val Today = PanelSpec("lobby_today", 440, 604, DesignScale.MAIN_M, azimuthDeg = -44f, elevationDeg = -1f, yawDeg = 26f)
 
     /** H-08: right panel at 38°, turned 22° toward the user. */
-    val Trend = PanelSpec("lobby_trend", 440, 640, DesignScale.MAIN_M, azimuthDeg = 38f, elevationDeg = 0f, yawDeg = -22f)
+    val Trend = PanelSpec("lobby_trend", 440, 640, DesignScale.MAIN_M, azimuthDeg = 44f, elevationDeg = 0f, yawDeg = -26f)
 
     /** H-09: near-field console, 35° below the line of sight, tilted back to face the eyes. */
     val Console = PanelSpec("console", 680, 90, DesignScale.NEAR_M, elevationDeg = -35f, pitchDeg = -36f)
@@ -121,7 +125,7 @@ object ResultPanels {
     val Main = PanelSpec("result_main", 720, 712, DesignScale.MAIN_M, boardCenterPx = 800f to 410f)
 
     /** R-03: "接下来一周" at 38° to the right, turned 22° toward the user. */
-    val NextWeek = PanelSpec("result_next", 368, 452, DesignScale.MAIN_M, azimuthDeg = 38f, elevationDeg = 3f, yawDeg = -22f)
+    val NextWeek = PanelSpec("result_next", 368, 452, DesignScale.MAIN_M, azimuthDeg = 40f, elevationDeg = 3f, yawDeg = -22f)
 
     /** R-02: caption under the small armillary on the left. */
     val ArmillaryTag = PanelSpec("result_armillary_tag", 250, 56, DesignScale.FAR_M, boardCenterPx = 222f to 568f)

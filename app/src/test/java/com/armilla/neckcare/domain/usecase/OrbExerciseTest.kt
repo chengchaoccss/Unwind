@@ -31,18 +31,24 @@ class OrbExerciseTest {
     }
 
     @Test
-    fun theOrbNeverMovesFasterThanFifteenDegreesPerSecond() {
+    fun theOrbEasesUpToSpeedAndNeverExceedsItsCruiseSpeed() {
         val exercise = OrbExercise(OrbPathGenerator.generate(boundary))
         var last = exercise.update(dt, GazePoint(0f, 0f), 0f).position
+        var lastSpeed = 0f
         repeat(72 * 20) {
             val snap = exercise.update(dt, last, 0f)
-            assertTrue(snap.position.distanceTo(last) / dt <= 15.5f)
+            val speed = snap.position.distanceTo(last) / dt
+            assertTrue("speed $speed", speed <= 32.5f)
+            // No jump in speed from one frame to the next: at most the braking rate, with slack
+            // for the corners of the sampled route.
+            assertTrue("jerk from $lastSpeed to $speed", kotlin.math.abs(speed - lastSpeed) <= 3f)
+            lastSpeed = speed
             last = snap.position
         }
     }
 
     @Test
-    fun followingTheOrbCatchesAllTwelveWithinNinetySeconds() {
+    fun followingTheOrbCatchesBothLapsWithinNinetySeconds() {
         val exercise = OrbExercise(OrbPathGenerator.generate(boundary))
         var snap = exercise.update(dt, GazePoint(0f, 0f), 0f)
         var seconds = 0f
@@ -50,8 +56,24 @@ class OrbExerciseTest {
             snap = exercise.update(dt, snap.position, 5f)
             seconds += dt
         }
-        assertEquals(12, snap.caught)
+        assertEquals(24, snap.total)
+        assertEquals(24, snap.caught)
         assertTrue("took $seconds s", seconds < 90f)
+    }
+
+    @Test
+    fun theOrbStopsExactlyOnEachCatchPoint() {
+        val path = OrbPathGenerator.generate(boundary)
+        val exercise = OrbExercise(path)
+        val elsewhere = GazePoint(170f, 80f)
+        var snap = exercise.update(dt, elsewhere, 0f)
+        // Never looked at, so it is never caught: it must come to rest on the first catch point
+        // before the 3 s away rule parks it, or park short of it; either way it never passes it.
+        repeat(72 * 10) { snap = exercise.update(dt, elsewhere, 0f) }
+        val first = path.catchPoints[1]
+        assertTrue(path.cumulativeDeg[path.catchIndices[1]] >= snap.arcDeg - 0.05f)
+        assertEquals(0, snap.caught)
+        assertTrue(snap.position.distanceTo(first) >= 0f)
     }
 
     @Test

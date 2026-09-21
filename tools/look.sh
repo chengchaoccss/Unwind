@@ -12,6 +12,8 @@ if ! ./gradlew :app:assembleDebug --console=plain -q > /tmp/armilla_build.log 2>
   grep -E "^e: |error:|FAILED" /tmp/armilla_build.log | head -20
   exit 1
 fi
+# Stop first: installing over a running app leaves the new process on the old stage (all black).
+pico-cli app stop com.armilla.neckcare -d "$DEVICE" >/dev/null 2>&1 || true
 pico-cli app install app/build/outputs/apk/debug/app-debug.apk -d "$DEVICE" -r | tail -1
 pico-cli app stop com.armilla.neckcare -d "$DEVICE" >/dev/null 2>&1 || true
 pico-cli app launch com.armilla.neckcare --activity .platform.LaunchActivity -d "$DEVICE" >/dev/null
