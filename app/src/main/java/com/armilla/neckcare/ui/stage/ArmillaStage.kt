@@ -41,6 +41,7 @@ import com.armilla.neckcare.ui.result.ResultUiState
 import com.armilla.neckcare.ui.result.components.ArmillaryUpdatedTag
 import com.armilla.neckcare.ui.result.components.NextWeekPanel
 import com.armilla.neckcare.ui.result.components.ResultPanel
+import com.armilla.neckcare.platform.AmbientPlayer
 import com.armilla.neckcare.platform.CuePlayer
 import com.armilla.neckcare.ui.session.SessionCue
 import com.armilla.neckcare.ui.session.SessionEvent
@@ -98,6 +99,7 @@ fun ArmillaStage() {
     val hmd = remember { HMDTrackingProvider() }
     val handTracking = remember { HandTrackingProvider() }
     val cues = remember { CuePlayer() }
+    val ambient = remember { AmbientPlayer() }
     val scene = remember {
         StageScene(density, ResourcesCompat.getFont(context, R.font.instrument_serif_regular)!!)
     }
@@ -118,6 +120,7 @@ fun ArmillaStage() {
             hmd.stop()
             handTracking.stop()
             cues.release()
+            ambient.release()
             scene.destroy()
         }
     }
@@ -126,6 +129,8 @@ fun ArmillaStage() {
         DesignSampleSeeder.seedIfRequested(context, AppContainer.sessions)
         lobby.onEvent(LobbyEvent.Refresh)
     }
+    LaunchedEffect(Unit) { ambient.start(AppContainer.settings.settings.value.ambientVolume) }
+    LaunchedEffect(settings.ambientVolume) { ambient.setVolume(settings.ambientVolume) }
     LaunchedEffect(sessionState.cueSerial) {
         when (sessionState.cue) {
             SessionCue.RECORDED -> cues.play(CuePlayer.Cue.RECORDED)

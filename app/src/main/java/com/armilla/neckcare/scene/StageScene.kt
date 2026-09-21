@@ -6,6 +6,7 @@ import com.armilla.neckcare.domain.model.Axis
 import com.armilla.neckcare.domain.model.Direction
 import com.armilla.neckcare.domain.usecase.HeadAngleCalculator
 import com.armilla.neckcare.domain.usecase.Quaternion
+import com.armilla.neckcare.scene.environment.MeteorShower
 import com.armilla.neckcare.scene.environment.SkyDome
 import com.armilla.neckcare.scene.environment.SkyPanorama
 import com.armilla.neckcare.ui.session.SessionStage
@@ -37,6 +38,7 @@ import kotlinx.coroutines.withContext
 class StageScene(private val density: Density, private val numerals: Typeface) {
     val anchor = StageAnchor()
     private var sky: SkyDome? = null
+    private var meteors: MeteorShower? = null
     private var armillary: Armillary? = null
     private var gauge: TestGauge? = null
     private var calibrationPoint: Entity? = null
@@ -80,6 +82,7 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
         val bitmap = withContext(Dispatchers.Default) { SkyPanorama.render() }
         sky = SkyDome(TextureResource.create(bitmap)).also(anchor::addChild)
         anchor.addChild(Dais())
+        meteors = MeteorShower(anchor) { anchor.eyeHeightM }
         armillary = Armillary().also(anchor::addChild)
         ready = true
     }
@@ -228,7 +231,9 @@ class StageScene(private val density: Density, private val numerals: Typeface) {
 
     /** One frame: follow groups, calibration and test sampling, gauge redraw. */
     fun onFrame(dt: Float, headPosition: Vector3, headRotation: Quat, session: SessionViewModel) {
-        if (!ready || headPosition.y < 0.2f) return
+        if (!ready) return
+        meteors?.update(dt)
+        if (headPosition.y < 0.2f) return
         val state = session.state.value
 
         if (state.stage != shownStage || state.paused != shownPaused) {
